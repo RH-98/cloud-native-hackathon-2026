@@ -180,7 +180,13 @@ function createMeHandler(accounts) {
         // For the header badge: how many connection requests wait for an answer.
         // Best effort: a failure here leaves the badge out, not the whole answer.
         if (user && typeof accounts.db.countIncomingConnectionRequests === 'function') {
-          const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch(() => null);
+          const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch((err) => {
+            const span = trace.getActiveSpan();
+            span?.recordException({ name: err?.name || 'Error', message: err?.message || 'unknown' });
+            span?.setAttribute('accounts.db_error', true);
+            console.error(`GET /api/me: connection request count unavailable (${err && (err.code || err.name)})`);
+            return null;
+          });
           if (incoming !== null) body.connectionRequests = { incoming };
         }
         return sendJson(res, 200, body);
