@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { detectEvidence, detectInterest, countMentions } = require('../profile/tools');
 const { ToolScores, blendLanguages, recencyDecay, dedupeKeywords } = require('../profile/score');
 const { extractKeywords, readmeHeadings } = require('../profile/signals');
+const { buildProfile, TtlCache } = require('../profile');
 
 const NOW = Date.parse('2026-11-09T20:00:00Z');
 const daysAgo = (d) => new Date(NOW - d * 24 * 60 * 60 * 1000).toISOString();
@@ -45,6 +46,12 @@ test('README lists of tools are not usage: 4+ tools on a line, table rows, short
   const m = countMentions(text);
   assert.deepEqual([...m.keys()].sort(), ['argo-cd', 'opentelemetry']);
   assert.equal(m.get('argo-cd'), 1);
+  // A 4+-tool line inside a list run is a list even when the run is not.
+  const mixed = countMentions(
+    '- We deploy every service of ours with Argo CD from this repository\n' +
+      '- Works with Argo CD, OpenTelemetry, Cilium, Kyverno and many other tools',
+  );
+  assert.deepEqual([...mixed.entries()], [['argo-cd', 1]]);
   // A list whose items are real sentences still counts.
   const sentences = countMentions(
     '- We deploy every service with Argo CD from this repo\n- Traces go through an OpenTelemetry collector we run\n' +
@@ -138,6 +145,32 @@ test('keywords: topics and descriptions first; README prose needs 2 repos; stopl
     dedupeKeywords(['kubernetes', 'progressive delivery', 'go'], [{ name: 'kubernetes', label: 'Kubernetes' }], [{ name: 'Go' }]),
     ['progressive delivery'],
   );
+});
+
+test('without a token, the smaller API budget is planned, not tripped: the profile is not partial', async () => {
+  const repos = Array.from({ length: 8 }, (_, i) => ({
+    name: `r${i}`, full_name: `anon/r${i}`, fork: false, archived: false, private: false, size: 10,
+    language: 'Go', topics: [], default_branch: 'main', pushed_at: daysAgo(i),
+  }));
+  const events = ['a/x', 'b/y', 'c/z'].map((name) => ({ type: 'PushEvent', repo: { name }, payload: {}, created_at: daysAgo(1) }));
+  let api = 0;
+  const fetch = async (url) => {
+    const u = new URL(url);
+    const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { 'x-ratelimit-remaining': '50' } });
+    if (u.host !== 'api.github.com') return new Response('nope', { status: 404 });
+    api += 1;
+    if (u.pathname === '/users/anon') return json({ login: 'anon', public_repos: 8 });
+    if (u.pathname === '/users/anon/repos') return json(repos);
+    if (u.pathname === '/users/anon/starred') return json([]);
+    if (u.pathname === '/users/anon/events/public') return json(events);
+    if (u.pathname.endsWith('/languages')) return json({ Go: 1000 });
+    if (/^\/repos\/[^/]+\/[^/]+$/.test(u.pathname)) return json({ full_name: u.pathname.slice(7), name: 'x', topics: [] });
+    return new Response('{}', { status: 404 });
+  };
+  const p = await buildProfile({ github: 'anon' }, { fetch, cache: new TtlCache(), token: '', now: () => NOW });
+  assert.ok(api <= 15, `${api} API calls`);
+  assert.equal(p.scan.partial, false);
+  assert.equal(p.scan.scanned, 8);
 });
 
 test('languages: byte-weighted per repo, blended with recency, under 3% dropped', () => {
