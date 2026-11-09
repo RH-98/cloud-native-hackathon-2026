@@ -1,0 +1,64 @@
+Avery Quill
+Avery Quill
+(She/Her)
+Senior Platform Engineer at Northwind Logistics | Kubernetes · Argo CD · Terraform | CNCF Ambassador
+Boulder, Colorado, United States
+Contact info
+500+ connections
+Message
+Follow
+More
+
+About
+About
+I build the internal developer platform at Northwind: golden paths on Kubernetes, GitOps with Argo CD, and Crossplane for cloud resources. Lately I have been rolling out OpenTelemetry across 40 services and writing about developer experience. 🚀
+…see more
+
+Experience
+Experience
+Senior Platform Engineer
+Senior Platform Engineer
+Northwind Logistics · Full-time
+Northwind Logistics · Full-time
+Jan 2022 - Present · 2 yrs 11 mos
+Boulder, Colorado, United States · Hybrid
+Led the move from Jenkins to GitHub Actions and Argo CD; built a multi-tenancy model with Kyverno policies.
+Skills: Kubernetes · Argo CD · Kyverno · +3 skills
+DevOps Engineer
+Contoso Freight
+Jun 2018 - Dec 2021 · 3 yrs 7 mos
+Denver, Colorado, United States
+Skills: Terraform · Amazon Web Services (AWS)
+
+Education
+University of Colorado Boulder
+Bachelor of Science - BS, Computer Science
+2012 - 2016
+
+Licenses & certifications
+Certified Kubernetes Administrator (CKA)
+The Linux Foundation
+Issued Mar 2021 · Expires Mar 2024
+
+Skills
+Skills
+Kubernetes
+Kubernetes
+Endorsed by Jordan Pike and 14 others who are highly skilled at this
+15 endorsements
+Terraform
+Terraform
+12 endorsements
+Amazon Web Services (AWS)
+Go (Programming Language)
+Prometheus
+Helm
+Agile Methodologies
+Team Leadership
+Show all 24 skills
+
+Languages
+English
+Native or bilingual proficiency
+Spanish
+Professional working proficiency

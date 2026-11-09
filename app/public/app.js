@@ -7,7 +7,7 @@ import { buildIcs, planToText } from './ics.js';
 import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
-import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
+import { MAX_INTERESTS, applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
 
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DEFAULT_CONFERENCE = 'kubecon-na-2026';
@@ -97,7 +97,7 @@ function setLoading(on, message) {
 // ---------- Form ----------
 
 function updateCount() {
-  el.interestsCount.textContent = `${el.interests.value.length} of 500 characters`;
+  el.interestsCount.textContent = `${el.interests.value.length.toLocaleString('en-US')} of 10,000 characters`;
 }
 
 function selectedConference() {
@@ -138,7 +138,7 @@ function restoreInputs(saved) {
   // Inputs saved before both fields could be used together carry a `source`:
   // restore only the field that was in use then.
   if (typeof saved.github === 'string' && saved.source !== 'interests') el.github.value = saved.github;
-  if (typeof saved.interests === 'string' && saved.source !== 'github') el.interests.value = saved.interests.slice(0, 500);
+  if (typeof saved.interests === 'string' && saved.source !== 'github') el.interests.value = saved.interests.slice(0, MAX_INTERESTS);
   for (const box of el.form.querySelectorAll('input[name="levels"]')) box.checked = (saved.levels || []).includes(box.value);
   el.firstTimer.checked = Boolean(saved.firstTimer);
   el.includeSponsored.checked = saved.includeSponsored !== false;
@@ -482,7 +482,7 @@ async function init() {
 function restoreSaved() {
   const req = state.request;
   el.github.value = typeof req.github === 'string' ? req.github : '';
-  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, 500) : '';
+  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, MAX_INTERESTS) : '';
   updateCount();
   const card = [...el.conferenceList.querySelectorAll('input[name="conference"]')].find((i) => i.value === req.conferenceId);
   if (card && !card.checked) {

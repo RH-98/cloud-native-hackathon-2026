@@ -1,0 +1,26 @@
+Dana Whitlock
+Director of Engineering, Platform | Building teams that build platforms
+San Francisco Bay Area
+1,876 followers · 500+ connections
+
+About
+I lead three teams (platform, developer productivity and reliability) at a fintech scale-up. We run everything on Kubernetes with Istio as the service mesh, ship through Flux, and treat cost optimization and FinOps as a product. Before that I was an Engineering Manager for an observability team that adopted OpenTelemetry early.
+
+I write about engineering leadership, hiring and running platform teams like products. Co-founder of a small meetup for platform folks in the Bay Area.
+
+Experience
+Director of Engineering
+Ledgerline
+Feb 2022 - Present · 2 yrs 10 mos
+Own the platform roadmap: internal developer platform on Backstage, policy as code, and supply chain security with Sigstore.
+Engineering Manager, Observability
+Quarry Analytics
+Aug 2018 - Jan 2022 · 3 yrs 6 mos
+Grew the team from 3 to 11 engineers.
+
+Recommendations
+Received
+Given
+Taylor Brooks
+Senior Engineer
+Dana is the best manager I have worked with. She cares about Terraform modules and Kafka like no one else.
