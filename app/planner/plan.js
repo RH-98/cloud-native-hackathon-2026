@@ -121,9 +121,11 @@ function conflicts(a, b, gapMs = 0) {
 // match worth more than several weak ones (0.8 beats 0.4 + 0.4), short talks
 // count a little less than full ones, and every pick pays a small cost for
 // walking between rooms, so a day isn't traded for a string of lightning talks.
+// Keynotes run back to back in one hall: no walking, no cost.
 const PICK_COST = 0.03;
 function weight(rec) {
-  return rec.score * rec.score * Math.min(1, 0.5 + minutes(rec.session) / 60) - PICK_COST;
+  const cost = isKeynote(rec.session) ? 0 : PICK_COST;
+  return rec.score * rec.score * Math.min(1, 0.5 + minutes(rec.session) / 60) - cost;
 }
 
 // Weighted interval scheduling: the non-conflicting subset with the most weight.
