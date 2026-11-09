@@ -95,7 +95,7 @@ function fromInterests(interests, now) {
   if (!tools.length && !rest.length) throw new ProfileError('invalid_input', 'Give a GitHub username or some interests');
   const languages = [];
   for (const phrase of rest) {
-    const lang = LANGUAGES[phrase];
+    const lang = Object.hasOwn(LANGUAGES, phrase) ? LANGUAGES[phrase] : undefined;
     if (lang && !languages.some((l) => l.name === lang)) languages.push({ name: lang, weight: 1 });
   }
   return {

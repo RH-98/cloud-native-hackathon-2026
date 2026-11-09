@@ -154,6 +154,10 @@ test('interests: aliases map to catalog tools, the rest become keywords', async 
   assert.deepEqual(p.keywords, ['rust', 'chess']);
   assert.deepEqual(p.languages, [{ name: 'Rust', weight: 1 }]);
   assert.deepEqual(p.topics, []);
+
+  const inheritedProperty = await buildProfile({ interests: 'constructor' });
+  assert.deepEqual(inheritedProperty.languages, []);
+  assert.deepEqual(inheritedProperty.keywords, ['constructor']);
 });
 
 test('interests: tools inside longer phrases, longest alias first', () => {
