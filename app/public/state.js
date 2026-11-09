@@ -138,6 +138,19 @@ export function planRequest(base, pinned, skipped) {
   return { ...base, options };
 }
 
+// "Update my route": a route for this conference is on screen. Keeps its
+// pins (they stay exactly where they are) and skips (an explicit choice);
+// local swaps are dropped and re-planned. Pins and skips of another
+// conference never carry over. Pure: returns new sets.
+export function isRouteUpdate(s, conferenceId) {
+  return Boolean(s.plan && conferenceId && s.plan.conferenceId === conferenceId);
+}
+
+export function keepForUpdate(s, conferenceId) {
+  const mine = (id) => typeof id === 'string' && id.startsWith(`${conferenceId}:`);
+  return { pinned: new Set([...s.pinned].filter(mine)), skipped: new Set([...s.skipped].filter(mine)) };
+}
+
 export function countPicks(plan) {
   let n = 0;
   for (const day of plan?.days || []) for (const slot of day.slots || []) if (slot.pick) n += 1;

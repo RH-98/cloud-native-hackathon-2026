@@ -960,3 +960,4 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+.submit-hint { margin: var(--space-2) 0 0; }
