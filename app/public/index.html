@@ -131,10 +131,12 @@
         </div>
 
         <button type="submit" class="btn btn--primary btn--big" id="submit">Map my route</button>
+        <p class="hint submit-hint" id="submit-hint" hidden>Pinned sessions stay put; everything else is re-planned.</p>
       </form>
     </section>
 
     <div class="results">
+      <div id="private-banner" class="private-banner" role="status" aria-live="polite" hidden></div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <div id="error" class="alert" role="alert" hidden></div>
 

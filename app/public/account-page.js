@@ -235,7 +235,7 @@ function privateReposBlock() {
       : 'Off: only your public repositories are read.'),
   ];
   if (!connected) {
-    out.push(h('p', {}, h('a', { href: '/auth/github-app/install?returnTo=%2Faccount' }, 'Include my private repos (read-only)'),
+    out.push(h('p', {}, h('a', { href: '/auth/github-app/install?returnTo=%2F' }, 'Include my private repos (read-only)'),
       ' installs the Switchback GitHub App with read-only access to the repos you choose.'));
   } else {
     out.push(h('p', {}, h('a', { href: 'https://github.com/settings/installations', target: '_blank', rel: 'noopener noreferrer' }, 'Manage or uninstall the GitHub App')));

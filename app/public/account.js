@@ -281,11 +281,50 @@ function takePrivateOutcome() {
 }
 
 const PRIVATE_MESSAGES = {
-  none: 'No private repos were shared with Switchback, so nothing was added. Pick repos on GitHub and try again.',
-  mismatch: 'That GitHub account is not the one you signed in with, so nothing was scanned.',
-  failed: 'Could not read your private repos. Try again in a moment.',
-  unavailable: 'Private repos are not available right now.',
+  none: 'No private repos were granted, so nothing was added. You can pick repos in GitHub settings, then use Re-scan.',
+  mismatch: 'That GitHub account is not the one you signed in with, so nothing was scanned. Sign in to GitHub as the same user and try again.',
+  failed: 'Could not read your private repos. Nothing was stored. Try again in a moment.',
+  unavailable: 'Private repos are not available on this server right now.',
 };
+
+// Text for the banner after the GitHub App round trip (pure, for tests).
+export function privateBannerText(outcome, repoCount) {
+  if (outcome === 'ready') {
+    const n = Number(repoCount) || 0;
+    return `✓ Private repos added: ${n} repo${n === 1 ? '' : 's'} scanned. Your plan now includes them.`;
+  }
+  return Object.hasOwn(PRIVATE_MESSAGES, outcome) ? PRIVATE_MESSAGES[outcome] : null;
+}
+
+// A dismissible status banner above the results. Text carries the meaning
+// (a check mark or "Could not"), never color alone. action: optional button.
+function showPrivateBanner(text, { ok = false, action = null } = {}) {
+  const banner = $('#private-banner');
+  if (!banner || !text) return;
+  const close = h('button', { type: 'button', class: 'btn btn--small btn--quiet private-banner__close', 'aria-label': 'Dismiss this message' }, 'Dismiss');
+  close.addEventListener('click', () => { banner.hidden = true; banner.replaceChildren(); });
+  banner.classList.toggle('private-banner--ok', ok);
+  banner.replaceChildren(
+    h('p', { class: 'private-banner__text' }, h('strong', {}, text)),
+    h('div', { class: 'private-banner__actions' }, action, close),
+  );
+  banner.hidden = false;
+}
+
+// Re-plans for the signed-in login. When that can't start (nothing to plan
+// yet), the banner offers a button instead of failing silently.
+async function replanWithPrivate() {
+  const login = account.user?.login;
+  if (!login) return;
+  const ok = await hooks.regenerate?.(login, 'Private repos included. Route updated.');
+  if (ok) {
+    showPrivateBanner(privateBannerText('ready', account.privateRepos.repoCount), { ok: true });
+    return;
+  }
+  const button = h('button', { type: 'button', class: 'btn btn--primary btn--small' }, 'Update my plan with private repos');
+  button.addEventListener('click', replanWithPrivate);
+  showPrivateBanner(`Private repos added: ${account.privateRepos.repoCount} scanned. Update your plan to include them.`, { ok: true, action: button });
+}
 
 function setSaveStatus(text) {
   const el = $('#save-status');
@@ -420,11 +459,14 @@ export async function initAccount(opts) {
   renderFormStart();
   renderPrivateRepos();
   const privateOutcome = takePrivateOutcome();
-  if (privateOutcome && PRIVATE_MESSAGES[privateOutcome]) hooks.notify?.(PRIVATE_MESSAGES[privateOutcome]);
+  if (privateOutcome && privateOutcome !== 'ready') showPrivateBanner(privateBannerText(privateOutcome));
   await restoreFlow();
-  // Back from the GitHub App with signals stored: rebuild the plan with them.
+  // Back from the GitHub App with signals stored: once the saved plan, form
+  // and conference are restored, rebuild the plan for the user's own login.
   if (privateOutcome === 'ready' && account.user && account.privateRepos.repoCount) {
-    hooks.regenerate?.(account.user.login, 'Private repos included. Route updated.');
+    await replanWithPrivate();
+  } else if (privateOutcome === 'ready') {
+    showPrivateBanner(PRIVATE_MESSAGES.failed);
   }
 }
 

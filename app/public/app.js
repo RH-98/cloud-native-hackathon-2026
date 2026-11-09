@@ -7,7 +7,7 @@ import { buildIcs, planToText } from './ics.js';
 import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
-import { MAX_INTERESTS, applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
+import { MAX_INTERESTS, applySwaps, countPicks, isRouteUpdate, keepForUpdate, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
 
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DEFAULT_CONFERENCE = 'kubecon-na-2026';
@@ -82,7 +82,8 @@ function setLoading(on, message) {
   state.loading = on;
   el.submit.disabled = on;
   el.submit.setAttribute('aria-busy', on ? 'true' : 'false');
-  el.submit.textContent = on ? 'Mapping your route…' : 'Map my route';
+  if (on) el.submit.textContent = 'Mapping your route…';
+  else syncSubmit();
   el.plan.setAttribute('aria-busy', on ? 'true' : 'false');
   for (const b of el.plan.querySelectorAll('[data-action="pin"], [data-action="skip"], [data-action="add"]')) b.disabled = on;
   el.resetChoices.disabled = on;
@@ -92,6 +93,28 @@ function setLoading(on, message) {
     el.empty.hidden = true;
     announce(message);
   }
+}
+
+// "Update my route" once a route for the selected conference is on screen.
+function syncSubmit() {
+  if (state.loading) return;
+  const update = isRouteUpdate(state, selectedConference());
+  el.submit.textContent = update ? 'Update my route' : 'Map my route';
+  const hint = document.getElementById('submit-hint');
+  if (hint) hint.hidden = !update;
+  if (update) el.submit.setAttribute('aria-describedby', 'submit-hint');
+  else el.submit.removeAttribute('aria-describedby');
+}
+
+// Re-plans from `body`, keeping pins and skips of the route on screen (local
+// swaps are re-planned). Returns true when the new route is on screen.
+function updateRoute(body, { message = 'Updating your route…', prefix = 'Route updated' } = {}) {
+  const keep = keepForUpdate(state, body.conferenceId);
+  state.pinned = keep.pinned;
+  state.skipped = keep.skipped;
+  state.swaps.clear();
+  const n = state.pinned.size;
+  return loadPlan(body, { message, done: `${prefix}: ${n} pinned session${n === 1 ? '' : 's'} kept.` });
 }
 
 // ---------- Form ----------
@@ -209,6 +232,7 @@ function showPlan({ focusKey } = {}) {
   el.plan.hidden = false;
   el.empty.hidden = true;
   el.planMeta.textContent = planMeta(state.plan);
+  syncSubmit();
   state.activeDay = renderPlan(el.planDays, state.plan, state.activeDay);
   el.resetChoices.hidden = !(state.pinned.size || state.skipped.size || state.swaps.size);
   changeWatch.planShown();
@@ -421,6 +445,7 @@ async function init() {
   el.form.addEventListener('change', (e) => {
     if (e.target.name !== 'conference') return;
     renderDays(e.target.value);
+    syncSubmit();
     // Signed in: show that conference's saved plan, if any (account.js).
     loadSavedFor(e.target.value);
   });
@@ -433,6 +458,10 @@ async function init() {
     const body = buildRequest(inputs);
     if (!body) return;
     saveInputs(inputs);
+    if (isRouteUpdate(state, body.conferenceId)) {
+      await updateRoute(body);
+      return;
+    }
     state.pinned.clear();
     state.skipped.clear();
     state.swaps.clear();
@@ -462,7 +491,7 @@ async function init() {
     state.pinned.clear();
     state.skipped.clear();
     state.swaps.clear();
-    loadPlan(state.request, { message: 'Clearing pins and skips…', done: 'Pins, skips and swaps cleared. Route updated.' });
+    loadPlan(state.request, { message: 'Clearing pins and skips…', done: 'Pins, skips and swaps cleared. Fresh route ready.', fresh: true });
   });
 
   try {
@@ -484,11 +513,18 @@ async function init() {
 
 // Back from the GitHub App: rebuild the plan for the signed-in user so the
 // server blends in their private-repo signals.
-function regenerateForUser(login, done) {
+// Returns true when the new plan is on screen.
+async function regenerateForUser(login, done) {
   el.github.value = login;
-  const body = state.request ? { ...state.request, github: login } : buildRequest(readInputs());
-  if (!body) return;
-  loadPlan(body, { message: 'Adding signals from your private repos…', done, fresh: true });
+  const body = state.request && state.request.conferenceId
+    ? { ...state.request, github: login }
+    : buildRequest(readInputs());
+  if (!body) return false;
+  // Same path as "Update my route": pins and skips survive.
+  if (isRouteUpdate(state, body.conferenceId)) {
+    return updateRoute(body, { message: 'Adding signals from your private repos…', prefix: 'Private repos included. Route updated' });
+  }
+  return loadPlan(body, { message: 'Adding signals from your private repos…', done, fresh: true });
 }
 
 // Shows a plan restored from the user's account (account.js has already put

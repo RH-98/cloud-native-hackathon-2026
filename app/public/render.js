@@ -87,8 +87,13 @@ function toolWhy(tool) {
   }).join(' · ') + (sources.length > 4 ? ` · and ${sources.length - 4} more` : '');
 }
 
+const PRIVATE_EVIDENCE = 'a private repo';
+
 function toolChip(tool) {
-  const name = tool.label || tool.name;
+  const fromPrivate = (tool.evidence || []).includes(PRIVATE_EVIDENCE)
+    || (Array.isArray(tool.sources) && tool.sources.some((s) => s && s.repo === PRIVATE_EVIDENCE));
+  const label = tool.label || tool.name;
+  const name = fromPrivate ? [label, ' ', h('span', { class: 'chip__private' }, 'private')] : label;
   const strength = STRENGTH_DOTS[tool.strength]
     ? [h('span', { class: 'chip__strength', 'aria-hidden': 'true' }, STRENGTH_DOTS[tool.strength]),
       h('span', { class: 'sr-only' }, ` (${tool.strength} signal)`)]
