@@ -1,7 +1,7 @@
 // The browser account module's pure helpers: what gets saved and restored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySnapshot, canOptInProfile, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
+import { applySnapshot, canOptInProfile, isOwnGithubProfile, isSameLogin, prefillGithub, privateBannerText, snapshotState } from '../public/account.js';
 import { derivedInterests, isPastedText, persistableRequest, saveInputs } from '../public/state.js';
 
 const sample = () => ({
@@ -95,4 +95,14 @@ test('the "Use @login" button hides only for your own login', () => {
   assert.equal(isSameLogin(' @octocat ', 'octocat'), true);
   assert.equal(isSameLogin('torvalds', 'octocat'), false);
   assert.equal(isSameLogin('', 'octocat'), false);
+});
+
+test('private-repo banner: plain messages for every outcome', () => {
+  assert.equal(privateBannerText('ready', 3), '✓ Private repos added: 3 repos scanned. Your plan now includes them.');
+  assert.equal(privateBannerText('ready', 1), '✓ Private repos added: 1 repo scanned. Your plan now includes them.');
+  assert.match(privateBannerText('none'), /No private repos were granted.*GitHub settings/);
+  assert.match(privateBannerText('mismatch'), /not the one you signed in with/);
+  assert.match(privateBannerText('failed'), /Could not read your private repos/);
+  assert.equal(privateBannerText('bogus'), null);
+  assert.equal(privateBannerText('toString'), null);
 });

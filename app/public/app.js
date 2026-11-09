@@ -484,11 +484,14 @@ async function init() {
 
 // Back from the GitHub App: rebuild the plan for the signed-in user so the
 // server blends in their private-repo signals.
-function regenerateForUser(login, done) {
+// Returns true when the new plan is on screen.
+async function regenerateForUser(login, done) {
   el.github.value = login;
-  const body = state.request ? { ...state.request, github: login } : buildRequest(readInputs());
-  if (!body) return;
-  loadPlan(body, { message: 'Adding signals from your private repos…', done, fresh: true });
+  const body = state.request && state.request.conferenceId
+    ? { ...state.request, github: login }
+    : buildRequest(readInputs());
+  if (!body) return false;
+  return loadPlan(body, { message: 'Adding signals from your private repos…', done, fresh: true });
 }
 
 // Shows a plan restored from the user's account (account.js has already put
