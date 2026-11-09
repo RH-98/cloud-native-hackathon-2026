@@ -71,14 +71,14 @@ test('probes are not traced; other requests are, with service.version', async ()
       const res = await fetch(`http://localhost:${port}${p}`);
       assert.strictEqual(res.status, 200);
     }
-    const res = await fetch(`http://localhost:${port}/api/sessions`);
+    const res = await fetch(`http://localhost:${port}/api/conferences`);
     assert.strictEqual(res.status, 200);
     await new Promise((resolve) => setTimeout(resolve, 300));
   } finally {
     await stop(app.child);
   }
   const output = app.output();
-  assert.match(output, /\/api\/sessions/);
+  assert.match(output, /\/api\/conferences/);
   assert.doesNotMatch(output, /\/healthz|\/readyz/);
   assert.match(output, /test-version/);
 });

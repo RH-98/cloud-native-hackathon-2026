@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Browser ES modules for the UI. Not served (static.js serves only known asset types); tells Node these .js files are ES modules so node:test can import them.",
+  "type": "module"
+}

@@ -31,7 +31,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | Variable | Value / source | Purpose |
 |---|---|---|
 | `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
-| `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
+| `TEAM_NAME` | `ryan-hilton-real` | Team name (not currently shown in the UI) |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
 | `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour). A profile uses about 10 API calls (user, repo list, one tree per repo, up to 8 repos); dependency files, manifests and READMEs come from `raw.githubusercontent.com`, which doesn't count against the API limit and never receives the token. Profiles are cached in memory for 15 minutes |
 | `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
@@ -58,6 +58,20 @@ These settings answer Radar's Checks for `Deployment/app`:
 | `readOnlyRootFs` | `readOnlyRootFilesystem: true`, plus a 64Mi `emptyDir` at `/tmp` | Nothing writes to disk at runtime: dependencies are installed at build time, and OpenTelemetry exports over the network |
 | `missingPDB` | [`deploy/pdb.yaml`](deploy/pdb.yaml), `minAvailable: 1` | Drains evict one of the 2 replicas at a time |
 | `missingTopologySpread` | `topologySpreadConstraints` on `kubernetes.io/hostname`, `whenUnsatisfiable: ScheduleAnyway` | Prefers spreading the replicas across nodes, but never blocks scheduling on the shared vcluster nodes |
+
+## The app: Switchback
+
+The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/public/) with no build step, served by `app/server.js` (`node:http`). Open http://localhost:8080 after `npm start`; it works offline with no credentials (the planner falls back to the snapshot).
+
+| Path | What it is |
+|---|---|
+| `app/server.js`, `app/api/` | HTTP routes: `GET /api/conferences`, `POST /api/plan` (shapes in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)), static files with a strict CSP, `/healthz`, `/readyz` |
+| `app/public/index.html`, `styles.css` | The page. Every color, font and spacing value is a CSS custom property at the top of `styles.css`, light and dark |
+| `app/public/app.js` | Wires the form, plan actions (swap, pin, skip, day tabs) and exports |
+| `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
+| `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
+
+The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` and hides itself if that route isn't there.
 
 ## Conference data
 
