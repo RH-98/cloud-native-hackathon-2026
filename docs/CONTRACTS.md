@@ -110,6 +110,28 @@ Plan:
 }
 ```
 
+A free slot (`pick: null`, any open stretch of 10 minutes or more between 9:00 and 18:00) also lists what you could do in it:
+
+```jsonc
+{
+  "start": "2026-11-10T12:00:00-07:00", "end": "2026-11-10T13:00:00-07:00",
+  "pick": null, "pinned": false,
+  "backups": [Recommendation],  // up to 3 sessions on during the window, best match first even below the pick floor;
+                                // reasons[0] is "Fits this window", "Starts in this window" or "Already running" (20+ min left),
+                                // then any match reasons. No skipped sessions; sponsored demos only when nothing else is on.
+                                // Empty for windows under 15 minutes.
+  "booths": [{ "sponsor": Sponsor, "score": 0.7, "reasons": ["…"] }],
+                                // on expo days: the day's booths for windows of 30+ min, one top match for 15-30 min
+                                // (also listed in day.booths with this window as its gap)
+  "logistics": [{ "title": "Lunch", "type": "meal", "start": "…", "end": "…", "room": "…" }],
+                                // kind "logistics" items overlapping the window (type: meal | break | social | expo | other);
+                                // titles lose leading emoji and ALL CAPS; all-day services (over 4 h) are left out
+  "suggestion": "Lunch is served 12:20–2:20 PM MT in Halls A-C."  // one line for the window; times include the conference time zone; "Short break: …" under 15 min
+}
+```
+
+Free-slot options never export: the `.ics` file and "Copy plan as text" list only picks. "Add to plan" on a free-slot session pins it (re-requests with `options.pinned`); a pick it overlaps (or crowds within `breakMinutes`) drops out, and the UI names it in the announcement.
+
 `Recommendation` is `{ "session": Session, "score": 0.83, "reasons": ["Matches argo-cd", "Beginner"] }`. `Session` and `Sponsor` are exactly the objects in [`app/data/conference-format.md`](../app/data/conference-format.md). `reasons` are short, human-readable strings the UI shows as-is.
 
 ## HTTP API (`app/server.js`)
@@ -119,13 +141,13 @@ Plan:
 | `GET /healthz`, `GET /readyz` | | `ok` (keep these) |
 | `GET /api/conferences` | | `{ "conferences": [{ id, name, location, timezone, startDate, endDate, sessionCount }] }` |
 | `POST /api/plan` | `{ "conferenceId", "github"?: "user", "interests"?: "text", "options"?: {…} }` (at least one of `github` / `interests`; both blends them) | `{ "profile": Profile, "plan": Plan, "warnings"?: [code] }`. With both inputs, if GitHub answers `rate_limited`, `not_found` or `upstream`, the plan is built from the interests alone (`profile.source` is `interests`) and `warnings` holds `github_rate_limited`, `github_not_found` or `github_unavailable`. `warnings` is left out when empty |
-| `POST /api/connections` | `{ "conferenceId", "profile": Profile, "pickedSessionIds"?: [id], "limit"?: 1-20, "firstTimer"?: bool }` | `{ "connections": [{ "attendee": { displayName, handle, role, bio, demo }, "score", "shared": [label], "why", "commonSessions": [{ id, title, start }] }], "searchBackend", "demoData": true }`. Opted-in attendees only: fictional demo attendees (`demo: true`) plus real users who signed in with GitHub and opted in (`demo: false`, never the requester); 404 when the conference has none |
+| `POST /api/connections` | `{ "conferenceId", "profile": Profile, "pickedSessionIds"?: [id], "limit"?: 1-20, "firstTimer"?: bool }` | `{ "connections": [{ "attendee": { displayName, handle, role, bio, demo }, "score", "shared": [label], "why", "commonSessions": [{ id, title, start }] }], "searchBackend", "demoData": true }`. Opted-in attendees only: fictional demo attendees (`demo: true`) plus real users who signed in with GitHub and opted in, with their GitHub, typed or LinkedIn-pasted signals (`demo: false`, never the requester); 404 when the conference has none |
 | `GET /api/me` | cookie `sb_session` | `{ "enabled": bool, "user": { login, name, avatarUrl } \| null, "privateRepos"?: { enabled, repoCount?, scannedAt? } }` (`privateRepos` when accounts are on; count and time only, never repo names) |
 | `DELETE /api/me/private-profile` | signed in, same origin | `{ "deleted": true }`: forgets the stored private-repo signals |
 | `GET /api/me/plan?conferenceId=` | signed in | `{ "state": SavedState \| null, "savedAt" }`. SavedState: `{ request, pinned, skipped, swaps: [[slotKey, sessionId]], activeDay, plan, profile }` |
 | `PUT /api/me/plan` | signed in, same origin; `{ "conferenceId", "state": SavedState }` (≤ 500 KB) | `{ "savedAt" }` |
 | `GET /api/me/social?conferenceId=` | signed in | `{ "optedIn": bool, "optedInAt" }` |
-| `PUT /api/me/social` | signed in, same origin; `{ "conferenceId", "optIn": bool, "profile"?: Profile }` | `{ "optedIn" }`. 403 unless `profile.source` is `github` or `github+interests` and `profile.username` is the signed-in login; stores derived signals only |
+| `PUT /api/me/social` | signed in, same origin; `{ "conferenceId", "optIn": bool, "profile"?: Profile }` | `{ "optedIn" }`. A profile with a GitHub username (`github`, `github+interests`) must be the signed-in login (case-insensitive), else 403. A profile from typed interests or a pasted LinkedIn profile (`source: "interests"`, no username) is taken as the user's own; 400 if no signals are left. Stores derived signals only (tool/language labels and weights, topics, keywords; typed interests' free-text keywords are dropped, GitHub's and a LinkedIn paste's curated ones kept): never evidence, pasted text or other fields |
 | `GET /auth/github/login?returnTo=/…`, `GET /auth/github/callback`, `POST /auth/logout` | | GitHub OAuth (scope `read:user`); the access token is never stored. Account errors: 401 `unauthorized`, 403 `forbidden`, 503 `unavailable` (database down) |
 | `GET /auth/github-app/install?returnTo=/…[&mode=rescan]`, `GET /auth/github-app/callback` | signed in | The read-only GitHub App (Contents and Metadata: read). The callback checks the signed state and that the token's GitHub user is the signed-in user, scans up to 8 private repos, stores tool and language labels only, drops the token, and redirects to `returnTo?private=ready\|none\|mismatch\|failed`. `POST /api/plan` with `github` equal to the signed-in login then blends those signals in (evidence `"a private repo"`) and sets `profile.privateRepos: N` |
 | `GET /api/changes` | query `conferenceId` (required), `since` (ISO 8601 date-time with a zone; only changes detected after it), `sessionIds` (comma-separated, max 200, all of this conference) | `{ "changes": [Change], "checkedAt": "…" \| null }`, newest first, at most 200 |

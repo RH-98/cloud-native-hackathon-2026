@@ -284,8 +284,9 @@ test('you can only opt in your own GitHub profile, and only derived signals are 
   });
   const someoneElse = await put({ optIn: true, profile: { source: 'github', username: 'torvalds', tools: [] } });
   assert.equal(someoneElse.status, 403);
-  const interests = await put({ optIn: true, profile: { source: 'interests', username: null } });
-  assert.equal(interests.status, 403);
+  // A profile with nothing in it has nothing to match on.
+  const empty = await put({ optIn: true, profile: { source: 'interests', username: null } });
+  assert.equal(empty.status, 400);
   assert.equal(app.db.social.size, 0);
 
   const mine = await put({
@@ -308,6 +309,61 @@ test('you can only opt in your own GitHub profile, and only derived signals are 
   const out = await put({ optIn: false });
   assert.equal(out.status, 200);
   assert.equal(app.db.social.size, 0);
+});
+
+test('LinkedIn-pasted signals can be opted in: derived labels and weights only, never the text', async (t) => {
+  const app = await start();
+  t.after(app.close);
+  const { token } = await signIn(app);
+  const put = (body) => fetch(`${app.base}/api/me/social`, {
+    method: 'PUT',
+    headers: { cookie: `${gh.SESSION_COOKIE}=${token}`, 'content-type': 'application/json', origin: PUBLIC_URL },
+    body: JSON.stringify({ conferenceId: 'kubecon-na-2026', ...body }),
+  });
+  const raw = 'Avery Quill\nSenior Platform Engineer at Northwind\n500+ connections\nSkills\nKubernetes';
+  const linkedin = {
+    source: 'interests', pastedFrom: 'linkedin', username: null, displayName: 'You',
+    tools: [{ name: 'kubernetes', label: 'Kubernetes', weight: 1, evidence: [] }, { name: 'crossplane', label: 'Crossplane', weight: 0.6, evidence: [] }],
+    languages: [{ name: 'Go', weight: 1 }], topics: ['platform engineering'], keywords: ['aws'],
+    interests: raw, text: raw, // a client must never send these, but if one does they are not stored
+  };
+
+  // No checkbox beyond the opt-in itself: a pasted profile with no username is taken as yours.
+  assert.equal((await put({ optIn: true, profile: linkedin })).status, 200);
+  let stored = [...app.db.social.values()][0].profile;
+  assert.deepEqual(stored, {
+    tools: [{ name: 'kubernetes', label: 'Kubernetes', weight: 1 }, { name: 'crossplane', label: 'Crossplane', weight: 0.6 }],
+    languages: [{ name: 'Go', weight: 1 }], topics: ['platform engineering'], keywords: ['aws'], // the parser's curated keywords
+  });
+  for (const s of ['Avery', 'Northwind', 'connections', 'pastedFrom']) assert.ok(!JSON.stringify(stored).includes(s), s);
+
+  // Blended with your own GitHub: stored together; the username must still be yours.
+  const blended = { ...linkedin, source: 'github+interests', username: 'octocat', tools: [...linkedin.tools, { name: 'argo-cd', label: 'Argo CD', weight: 0.8, evidence: ['octocat/deploy'] }] };
+  assert.equal((await put({ optIn: true, profile: blended })).status, 200);
+  stored = [...app.db.social.values()][0].profile;
+  assert.deepEqual(stored.tools.map((x) => x.name), ['kubernetes', 'crossplane', 'argo-cd']);
+  assert.deepEqual(stored.keywords, ['aws']);
+  assert.ok(!JSON.stringify(stored).includes('octocat/deploy'));
+  // Typed (not pasted) interests blended with GitHub: their free-text keywords are not stored.
+  assert.equal((await put({ optIn: true, profile: { ...blended, pastedFrom: undefined, keywords: ['my secret project'] } })).status, 200);
+  assert.deepEqual([...app.db.social.values()][0].profile.keywords, []);
+  assert.equal((await put({ optIn: true, profile: { ...blended, username: 'torvalds' } })).status, 403);
+  assert.equal((await put({ optIn: true, profile: { ...linkedin, username: 'torvalds' } })).status, 403);
+  assert.equal(app.db.social.size, 1);
+
+  // Typed interests (or a paste the parser didn't recognise) keep phrases verbatim
+  // as keywords: those are not stored, only the catalog matches.
+  const typed = {
+    source: 'interests', username: null,
+    tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1, evidence: [] }], languages: [], topics: [],
+    keywords: ['avery quill', 'senior platform engineer at northwind', '500+ connections'],
+  };
+  assert.equal((await put({ optIn: true, profile: typed })).status, 200);
+  stored = [...app.db.social.values()][0].profile;
+  assert.deepEqual(stored.keywords, []);
+  assert.ok(!JSON.stringify(stored).includes('avery') && !JSON.stringify(stored).includes('northwind'));
+  // Nothing left to match on: refused.
+  assert.equal((await put({ optIn: true, profile: { ...typed, tools: [] } })).status, 400);
 });
 
 test('deriveSocialProfile caps list sizes and clamps weights', () => {

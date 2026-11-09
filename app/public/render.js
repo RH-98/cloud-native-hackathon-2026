@@ -4,6 +4,8 @@
 import { cityOf, formatDateSpan, formatDay, formatTimeRange, minutesBetween, safeUrl, timeRangeParts, zoneLongName } from './format.js';
 
 const MIN_GAP_MINUTES = 15;
+const SHORT_GAP_MINUTES = 15; // below this, free time is a walk to the next room
+const COMPACT_GAP_MINUTES = 10; // below this, no "Things to do" list
 
 // h('a', { href, class: 'x' }, 'text', child) -> element
 export function h(tag, attrs = {}, ...children) {
@@ -240,17 +242,7 @@ function backupList(date, index, slot, timeZone) {
 
 function slotItem(date, index, slot, timeZone, booths = []) {
   const rec = slot.pick;
-  if (!rec || !rec.session) {
-    // Free time: booths that fit here, and any backups the planner offered.
-    return h('li', { class: 'stop stop--gap' },
-      h('div', { class: 'stop__time' }, timeRange(slot.start, slot.end, timeZone, 'when', true)),
-      h('div', { class: 'gap' },
-        h('h4', { class: 'gap__title' }, freeFor(slot.start, slot.end), booths.length ? ' \u00b7 booth stops on the way' : ''),
-        booths.length
-          ? h('ul', { class: 'booths' }, booths.map(boothItem))
-          : h('p', { class: 'hint' }, 'Nothing here matched you. Rest, refill your water, or wander the hallway track.'),
-        backupList(date, index, slot, timeZone)));
-  }
+  if (!rec || !rec.session) return freeSlotItem(date, index, slot, timeZone, booths);
   const s = rec.session;
   const titleId = `pick-${date}-${index}`;
   const flags = [
@@ -277,18 +269,92 @@ function boothItem(booth) {
     reasonChips(booth.reasons, `Why visit ${sp.name}`));
 }
 
-function freeFor(start, end) {
+function openFor(start, end) {
   const mins = minutesBetween(start, end);
-  if (mins < 60) return `Free for ${mins} min`;
-  return `Free for ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
+  if (mins < 60) return `Open time \u00b7 ${mins} min`;
+  return `Open time \u00b7 ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
 }
 
+// Gaps the planner did not plan (outside its 9:00-18:00 window).
 function gapItem(gap, timeZone) {
+  const short = minutesBetween(gap.start, gap.end) < SHORT_GAP_MINUTES;
   return h('li', { class: 'stop stop--gap' },
     h('div', { class: 'stop__time' }, timeRange(gap.start, gap.end, timeZone, 'when', true)),
     h('div', { class: 'gap' },
-      h('h4', { class: 'gap__title' }, freeFor(gap.start, gap.end), gap.booths.length ? ' \u00b7 booth stops on the way' : ''),
-      gap.booths.length ? h('ul', { class: 'booths' }, gap.booths.map(boothItem)) : null));
+      h('h4', { class: 'gap__title' }, openFor(gap.start, gap.end)),
+      gap.booths.length
+        ? optionsList({ sessions: [], logistics: [], booths: gap.booths }, timeZone)
+        : h('p', { class: 'gap__suggestion' }, short ? 'Short break: walk to your next room.' : 'Take a breather before your next session.')));
+}
+
+// ---------- Free time: things to do ----------
+
+const LOGISTICS_KINDS = {
+  meal: { icon: '\u{1F37D}\uFE0F', label: 'Food' },
+  break: { icon: '\u2615', label: 'Break' },
+  social: { icon: '\u{1F942}', label: 'Social' },
+  expo: { icon: '\u{1F3EA}', label: 'Expo' },
+  other: { icon: '\u{1F4CD}', label: 'On site' },
+};
+
+function logisticsItem(item, timeZone) {
+  const kind = LOGISTICS_KINDS[item.type] || LOGISTICS_KINDS.other;
+  return h('li', { class: 'logistic' },
+    h('span', { class: 'logistic__icon', 'aria-hidden': 'true' }, kind.icon),
+    h('span', { class: 'logistic__body' },
+      h('span', { class: 'logistic__kind' }, `${kind.label}: `),
+      h('strong', {}, item.title),
+      h('span', { class: 'logistic__meta' }, ' ', timeRange(item.start, item.end, timeZone), item.room ? ` \u00b7 ${item.room}` : '')));
+}
+
+function optionSession(date, b, timeZone) {
+  const s = b.session;
+  return h('li', { class: 'backup' },
+    h('p', { class: 'backup__title' }, externalLink(s.url, s.title)),
+    h('p', { class: 'backup__meta' },
+      timeRange(s.start, s.end, timeZone),
+      s.room ? ` \u00b7 ${s.room}` : '',
+      s.level ? ` \u00b7 ${s.level}` : ''),
+    reasonChips(b.reasons, `About ${s.title}`),
+    h('button', { type: 'button', class: 'btn btn--small', dataset: { action: 'add', day: date, session: s.id } },
+      'Add to plan', srOnly(`: ${s.title}`)));
+}
+
+function optionGroup(title, list) {
+  return h('div', { class: 'options__group' }, h('h5', { class: 'options__heading' }, title), list);
+}
+
+// The "Things to do (N)" disclosure for free time, styled like "Backups (N)".
+function optionsList({ date, sessions, logistics, booths }, timeZone) {
+  const n = sessions.length + logistics.length + booths.length;
+  if (!n) return null;
+  return h('details', { class: 'backups options' },
+    h('summary', {}, `Things to do (${n})`),
+    logistics.length ? optionGroup('Food and breaks', h('ul', { class: 'logistics' }, logistics.map((l) => logisticsItem(l, timeZone)))) : null,
+    sessions.length ? optionGroup('Sessions on anyway', h('ol', { class: 'backups__list' }, sessions.map((b) => optionSession(date, b, timeZone)))) : null,
+    booths.length ? optionGroup('Booths to visit', h('ul', { class: 'booths' }, booths.map(boothItem))) : null);
+}
+
+// A slot with no pick: a friendly title, the planner's suggestion, and the
+// options it found (sessions on anyway, meals and breaks, booths).
+function freeSlotItem(date, index, slot, timeZone, booths = []) {
+  const mins = minutesBetween(slot.start, slot.end);
+  const options = {
+    date,
+    sessions: (slot.backups || []).filter((b) => b && b.session),
+    logistics: (slot.logistics || []).filter((l) => l && l.title && l.start && l.end),
+    booths: (Array.isArray(slot.booths) ? slot.booths : booths).filter((b) => b && b.sponsor),
+  };
+  const suggestion = slot.suggestion || (mins < SHORT_GAP_MINUTES
+    ? 'Short break: walk to your next room.'
+    : 'Rest, refill your water, or wander the hallway track.');
+  return h('li', { class: 'stop stop--gap' },
+    h('div', { class: 'stop__time' }, timeRange(slot.start, slot.end, timeZone, 'when', true)),
+    h('div', { class: 'gap' },
+      h('h4', { class: 'gap__title' }, openFor(slot.start, slot.end)),
+      h('p', { class: 'gap__suggestion' }, suggestion),
+      // Very short gaps stay compact: just the suggestion.
+      mins < COMPACT_GAP_MINUTES ? null : optionsList(options, timeZone)));
 }
 
 // Interleaves slots with free gaps, and puts each booth in the free time

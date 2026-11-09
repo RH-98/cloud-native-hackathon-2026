@@ -10,7 +10,8 @@ const STATE_TTL_SECONDS = 10 * 60;
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 5000;
-const MAX_PAGES = 5;
+const MAX_PAGES = 5; // per installation, 100 repos a page
+const MAX_INSTALLATIONS = 10;
 
 const callbackPath = `${COOKIE_PATH}/callback`;
 
@@ -70,14 +71,14 @@ async function getJson(fetch, token, path, span) {
   return res.json();
 }
 
-// The repos the user granted the App, across their installations. The page
-// limit bounds collection; pickPrivateRepos sorts and caps repos for scanning.
+// The repos the user granted the App, across their installations. Page and
+// installation limits bound collection; pickPrivateRepos sorts and caps.
 function listGrantedRepos({ fetch = globalThis.fetch, token }) {
   return gh.withSpan('github.app_list_repos', async (span) => {
     const inst = await getJson(fetch, token, '/user/installations?per_page=100', span);
     const installations = Array.isArray(inst?.installations) ? inst.installations : [];
     const repos = [];
-    for (const i of installations) {
+    for (const i of installations.slice(0, MAX_INSTALLATIONS)) {
       if (!Number.isSafeInteger(i?.id)) continue;
       for (let page = 1; page <= MAX_PAGES; page += 1) {
         const body = await getJson(fetch, token, `/user/installations/${i.id}/repositories?per_page=100&page=${page}`, span);
