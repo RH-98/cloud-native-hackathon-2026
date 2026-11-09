@@ -5,10 +5,13 @@
   "description": "Starter app for the Radar AI SRE track at the Cloud Native Hackathon",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "import:kubecon": "node scripts/import-kubecon-na-2026.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.10.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.83.0"
+    "@opentelemetry/auto-instrumentations-node": "^0.83.0",
+    "cheerio": "^1.2.0"
   }
 }

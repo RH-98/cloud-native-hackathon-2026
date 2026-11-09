@@ -35,7 +35,17 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans |
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 
-To run locally without Dash0: `cd app && npm install && npm start`.
+To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`.
+
+## Conference data
+
+The planner can hold any number of conferences, all in one format: [`app/data/conference-format.md`](app/data/conference-format.md). Each conference is a snapshot in `app/data/conferences/`, built by an importer, so the app never depends on the source being reachable.
+
+| Conference | Snapshot | Source | Contents |
+|---|---|---|---|
+| KubeCon + CloudNativeCon NA 2026 | `kubecon-na-2026.json` | Official [schedule](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/program/schedule/) and [sponsor list](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/sponsor-list/) pages | 600 sessions (including breaks and meals) and 244 sponsors with tiers |
+
+To refresh the KubeCon snapshot: `cd app && npm run import:kubecon`. Session content belongs to the Linux Foundation and the speakers. We use it only to help attendees plan, and link back to each session's official page.
 
 ## AI usage
 
