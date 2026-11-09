@@ -104,14 +104,17 @@ Plan:
 | `GET /api/conferences` | | `{ "conferences": [{ id, name, location, timezone, startDate, endDate, sessionCount }] }` |
 | `POST /api/plan` | `{ "conferenceId", "github"?: "user", "interests"?: "text", "options"?: {…} }` (at least one of `github` / `interests`; both blends them) | `{ "profile": Profile, "plan": Plan, "warnings"?: [code] }`. With both inputs, if GitHub answers `rate_limited`, `not_found` or `upstream`, the plan is built from the interests alone (`profile.source` is `interests`) and `warnings` holds `github_rate_limited`, `github_not_found` or `github_unavailable`. `warnings` is left out when empty |
 | `POST /api/connections` | `{ "conferenceId", "profile": Profile, "pickedSessionIds"?: [id], "limit"?: 1-20, "firstTimer"?: bool }` | `{ "connections": [{ "attendee": { displayName, handle, role, bio, demo }, "score", "shared": [label], "why", "commonSessions": [{ id, title, start }] }], "searchBackend", "demoData": true }`. Opted-in attendees only: fictional demo attendees (`demo: true`) plus real users who signed in with GitHub and opted in (`demo: false`, never the requester); 404 when the conference has none |
-| `GET /api/me` | cookie `sb_session` | `{ "enabled": bool, "user": { login, name, avatarUrl } \| null }` |
+| `GET /api/me` | cookie `sb_session` | `{ "enabled": bool, "user": { login, name, avatarUrl, memberSince } \| null }` (`memberSince`: ISO date-time of the first sign-in) |
+| `DELETE /api/me` | signed in, same origin | 204, clears the `sb_session` cookie. Deletes the user's sessions, saved plans, social opt-ins and user row (and any other per-user rows, which reference `users(id) ON DELETE CASCADE`) in one transaction |
+| `GET /api/me/plans` | signed in | `{ "plans": [{ conferenceId, savedAt, pickCount, canOptIn }] }`, newest first. Summaries only, never the plan: `pickCount` is the number of slots with a pick (`null` when the plan was saved without its days); `canOptIn` is true when the stored profile was built from this user's own GitHub login |
 | `GET /api/me/plan?conferenceId=` | signed in | `{ "state": SavedState \| null, "savedAt" }`. SavedState: `{ request, pinned, skipped, swaps: [[slotKey, sessionId]], activeDay, plan, profile }` |
 | `PUT /api/me/plan` | signed in, same origin; `{ "conferenceId", "state": SavedState }` (≤ 500 KB) | `{ "savedAt" }` |
+| `DELETE /api/me/plan?conferenceId=` | signed in, same origin | `{ "deleted": bool }`; only the caller's own plan |
 | `GET /api/me/social?conferenceId=` | signed in | `{ "optedIn": bool, "optedInAt" }` |
 | `PUT /api/me/social` | signed in, same origin; `{ "conferenceId", "optIn": bool, "profile"?: Profile }` | `{ "optedIn" }`. 403 unless `profile.source` is `github` or `github+interests` and `profile.username` is the signed-in login; stores derived signals only |
 | `GET /auth/github/login?returnTo=/…`, `GET /auth/github/callback`, `POST /auth/logout` | | GitHub OAuth (scope `read:user`); the access token is never stored. Account errors: 401 `unauthorized`, 403 `forbidden`, 503 `unavailable` (database down) |
 | `GET /api/changes` | query `conferenceId` (required), `since` (ISO 8601 date-time with a zone; only changes detected after it), `sessionIds` (comma-separated, max 200, all of this conference) | `{ "changes": [Change], "checkedAt": "…" \| null }`, newest first, at most 200 |
-| `GET /` and static files | | the UI from `app/public/` |
+| `GET /` and static files | | the UI from `app/public/`. `GET /account` serves `account.html` (the account page); `/?conference=<id>` selects that conference and, when signed in, restores its saved plan |
 
 Errors are JSON `{ "error": { "code": "not_found", "message": "No GitHub user named …" } }` with status 400 (`invalid_input`), 404 (`not_found`), 429 (`rate_limited`) or 502 (`upstream`).
 

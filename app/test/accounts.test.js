@@ -8,7 +8,7 @@ const { createHandler } = require('../api/router');
 const { createAccounts } = require('../auth');
 const gh = require('../auth/github');
 const { createDb, MIGRATION_SQL, hashToken } = require('../db');
-const { validateSavedState, deriveSocialProfile } = require('../api/me');
+const { validateSavedState, deriveSocialProfile, countSavedPicks } = require('../api/me');
 
 const SECRET = 'a'.repeat(64);
 const PUBLIC_URL = 'https://planner.example';
@@ -26,7 +26,7 @@ function fakeDb() {
     async upsertUser(g) {
       let user = [...users.values()].find((u) => u.githubId === String(g.id));
       if (!user) user = { id: String(nextId++), githubId: String(g.id) };
-      Object.assign(user, { login: g.login, name: g.name, avatarUrl: g.avatar_url });
+      Object.assign(user, { login: g.login, name: g.name, avatarUrl: g.avatar_url, memberSince: user.memberSince || '2026-11-09T15:00:00.000Z' });
       users.set(user.id, user);
       return user;
     },
@@ -45,6 +45,20 @@ function fakeDb() {
       const savedAt = new Date().toISOString();
       plans.set(`${userId}|${conf}`, { state, savedAt });
       return savedAt;
+    },
+    async listPlans(userId) {
+      return [...plans.entries()].filter(([k]) => k.startsWith(`${userId}|`)).map(([k, v]) => ({
+        conferenceId: k.split('|')[1],
+        savedAt: v.savedAt,
+        days: v.state.plan ? v.state.plan.days : null,
+        profile: v.state.profile ? { source: v.state.profile.source, username: v.state.profile.username } : null,
+      }));
+    },
+    async deletePlan(userId, conf) { return plans.delete(`${userId}|${conf}`); },
+    async deleteUser(userId) {
+      for (const map of [plans, social]) for (const k of [...map.keys()]) if (k.startsWith(`${userId}|`)) map.delete(k);
+      for (const [k, v] of [...sessions]) if (v === userId) sessions.delete(k);
+      users.delete(userId);
     },
     async getSocialProfile(userId, conf) { return social.get(`${userId}|${conf}`) || null; },
     async setSocialProfile(userId, conf, profile) { social.set(`${userId}|${conf}`, { profile, optedInAt: new Date().toISOString() }); },
@@ -175,7 +189,7 @@ test('callback happy path: user upserted, session cookie set, token discarded', 
   assert.ok(exchange.init.signal);
 
   const me = await (await fetch(`${app.base}/api/me`, { headers: { cookie: `${gh.SESSION_COOKIE}=${token}` } })).json();
-  assert.deepEqual(me, { enabled: true, user: { login: 'octocat', name: 'The Octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/42' } });
+  assert.deepEqual(me, { enabled: true, user: { login: 'octocat', name: 'The Octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/42', memberSince: '2026-11-09T15:00:00.000Z' } });
 });
 
 test('callback failures redirect to /?login=failed without a session', async (t) => {
@@ -430,4 +444,127 @@ test('only signed-in callers can see real opted-in attendees', async (t) => {
   assert.equal(realAttendeeReads, 1);
   const realMatches = signedInBody.connections.filter((c) => c.attendee.demo === false);
   assert.deepEqual(realMatches.map((c) => c.attendee.handle), ['opted-real-only']);
+});
+
+// ---------- Account page: plan list, deleting a plan, deleting the account ----------
+
+const planState = (conferenceId, picks, profile = { source: 'github', username: 'octocat' }) => ({
+  request: { conferenceId, github: 'octocat' },
+  pinned: [], skipped: [], swaps: [], activeDay: null,
+  profile,
+  plan: { conferenceId, days: [{ date: '2026-11-10', slots: [...Array(picks).fill({ pick: { session: { id: 'x' } } }), { pick: null }] }] },
+});
+
+async function signedInWithPlans(t) {
+  const app = await start();
+  t.after(app.close);
+  const { token } = await signIn(app);
+  const me = [...app.db.users.values()][0];
+  await app.db.savePlan(me.id, 'kubecon-na-2026', planState('kubecon-na-2026', 3));
+  await app.db.savePlan(me.id, 'convergence-2026', planState('convergence-2026', 1, { source: 'interests', username: null }));
+  await app.db.setSocialProfile(me.id, 'kubecon-na-2026', { tools: [] });
+  // Someone else, with their own plan, opt-in and session.
+  const other = await app.db.upsertUser({ id: 7, login: 'hubot', name: 'Hubot' });
+  const otherToken = await app.db.createSession(other.id);
+  await app.db.savePlan(other.id, 'kubecon-na-2026', planState('kubecon-na-2026', 5));
+  await app.db.setSocialProfile(other.id, 'kubecon-na-2026', { tools: [] });
+  return { app, me, other, otherToken, cookie: `${gh.SESSION_COOKIE}=${token}` };
+}
+
+test('countSavedPicks counts slots with a pick, and is null without days', () => {
+  assert.equal(countSavedPicks([{ slots: [{ pick: {} }, { pick: null }, {}] }, { slots: [{ pick: { session: {} } }] }]), 2);
+  assert.equal(countSavedPicks([]), 0);
+  assert.equal(countSavedPicks(null), null);
+  assert.equal(countSavedPicks([null, { slots: 'no' }]), 0);
+});
+
+test('GET /api/me includes memberSince; GET /api/me/plans lists summaries, never whole plans', async (t) => {
+  const { app, cookie } = await signedInWithPlans(t);
+  const me = await (await fetch(`${app.base}/api/me`, { headers: { cookie } })).json();
+  assert.equal(me.user.memberSince, '2026-11-09T15:00:00.000Z');
+
+  assert.equal((await fetch(`${app.base}/api/me/plans`)).status, 401);
+  const res = await fetch(`${app.base}/api/me/plans`, { headers: { cookie } });
+  assert.equal(res.status, 200);
+  const { plans } = await res.json();
+  assert.equal(plans.length, 2); // not the other user's
+  const kube = plans.find((p) => p.conferenceId === 'kubecon-na-2026');
+  assert.equal(kube.pickCount, 3);
+  assert.equal(kube.canOptIn, true);
+  assert.ok(kube.savedAt);
+  assert.deepEqual(Object.keys(kube).sort(), ['canOptIn', 'conferenceId', 'pickCount', 'savedAt']);
+  const conv = plans.find((p) => p.conferenceId === 'convergence-2026');
+  assert.equal(conv.pickCount, 1);
+  assert.equal(conv.canOptIn, false); // built from typed interests, not this GitHub account
+  assert.equal((await fetch(`${app.base}/api/me/plans`, { method: 'POST', headers: { cookie } })).status, 405);
+});
+
+test('DELETE /api/me/plan needs sign-in and same origin, and deletes only your own plan', async (t) => {
+  const { app, me, other, cookie } = await signedInWithPlans(t);
+  const del = (headers, conf = 'kubecon-na-2026') => fetch(`${app.base}/api/me/plan?conferenceId=${conf}`, { method: 'DELETE', headers });
+  assert.equal((await del({ origin: PUBLIC_URL })).status, 401);
+  assert.equal((await del({ cookie, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await del({ cookie })).status, 403);
+  assert.equal((await del({ cookie, origin: PUBLIC_URL }, 'Bad Id')).status, 400);
+  const ok = await del({ cookie, origin: PUBLIC_URL });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { deleted: true });
+  assert.equal(app.db.plans.has(`${me.id}|kubecon-na-2026`), false);
+  assert.equal(app.db.plans.has(`${me.id}|convergence-2026`), true);
+  assert.equal(app.db.plans.has(`${other.id}|kubecon-na-2026`), true);
+  assert.deepEqual(await (await del({ cookie, origin: PUBLIC_URL })).json(), { deleted: false });
+});
+
+test('DELETE /api/me removes your user, sessions, plans and opt-ins, clears the cookie, and leaves others alone', async (t) => {
+  const { app, me, other, otherToken, cookie } = await signedInWithPlans(t);
+  assert.equal((await fetch(`${app.base}/api/me`, { method: 'DELETE' })).status, 403);
+  assert.equal((await fetch(`${app.base}/api/me`, { method: 'DELETE', headers: { origin: PUBLIC_URL } })).status, 401);
+  assert.equal((await fetch(`${app.base}/api/me`, { method: 'DELETE', headers: { cookie, origin: 'https://evil.example' } })).status, 403);
+  assert.equal(app.db.users.has(me.id), true);
+
+  const res = await fetch(`${app.base}/api/me`, { method: 'DELETE', headers: { cookie, origin: PUBLIC_URL } });
+  assert.equal(res.status, 204);
+  assert.match(getCookie(res, gh.SESSION_COOKIE), /Max-Age=0/i);
+  assert.equal(app.db.users.has(me.id), false);
+  assert.equal([...app.db.plans.keys()].some((k) => k.startsWith(`${me.id}|`)), false);
+  assert.equal([...app.db.social.keys()].some((k) => k.startsWith(`${me.id}|`)), false);
+  assert.equal([...app.db.sessions.values()].includes(me.id), false);
+  // The old cookie no longer signs anyone in.
+  assert.equal((await (await fetch(`${app.base}/api/me`, { headers: { cookie } })).json()).user, null);
+  // The other user is untouched.
+  assert.equal(app.db.users.has(other.id), true);
+  assert.equal(app.db.plans.has(`${other.id}|kubecon-na-2026`), true);
+  assert.equal(app.db.social.has(`${other.id}|kubecon-na-2026`), true);
+  const still = await (await fetch(`${app.base}/api/me`, { headers: { cookie: `${gh.SESSION_COOKIE}=${otherToken}` } })).json();
+  assert.equal(still.user.login, 'hubot');
+});
+
+test('DELETE /api/me runs in one transaction and rolls back on failure', async () => {
+  const log = [];
+  const client = {
+    query: async (sql) => {
+      log.push(sql.trim().split(/\s+/).slice(0, 3).join(' '));
+      if (sql.startsWith('DELETE FROM sessions')) throw new Error('boom');
+      return { rows: [] };
+    },
+    release: () => log.push('release'),
+  };
+  const db = createDb({ connect: async () => client, query: async () => ({ rows: [] }) });
+  await db.ready();
+  log.length = 0;
+  await assert.rejects(db.deleteUser('1'), /boom/);
+  assert.deepEqual(log, ['BEGIN', 'DELETE FROM social_profiles', 'DELETE FROM saved_plans', 'DELETE FROM sessions', 'ROLLBACK', 'release']);
+});
+
+test('account routes 503 when the database is down', async (t) => {
+  const db = fakeDb();
+  const app = await start({ db });
+  t.after(app.close);
+  const { token } = await signIn(app);
+  db.listPlans = async () => { throw new Error('ECONNREFUSED'); };
+  const original = console.error;
+  console.error = () => {};
+  t.after(() => { console.error = original; });
+  const res = await fetch(`${app.base}/api/me/plans`, { headers: { cookie: `${gh.SESSION_COOKIE}=${token}` } });
+  assert.equal(res.status, 503);
 });

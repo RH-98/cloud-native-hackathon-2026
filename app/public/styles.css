@@ -802,3 +802,96 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
 .changes__meta { margin: 0 0 var(--space-3); color: var(--text-muted); font-size: 0.875rem; }
 .changes__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
 .change__text { margin: 0 0 var(--space-2); }
+
+/* ---------- Account page (/account, account-page.js) ---------- */
+
+.brand__home { display: inline-flex; align-items: center; gap: var(--space-2); color: inherit; text-decoration: none; }
+.brand__home:hover span { text-decoration: underline; text-underline-offset: 0.2em; }
+.masthead--compact .masthead__title { font-size: clamp(2rem, 4.5vw, 3.25rem); }
+.masthead--compact .masthead__lede { margin-bottom: 0; }
+.account__who.account__link { text-decoration: none; }
+.account__who.account__link:hover span, .account__who[aria-current="page"] span { text-decoration: underline; text-underline-offset: 0.2em; }
+
+.acct {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: var(--space-5);
+  display: grid;
+  gap: var(--space-5);
+}
+.acct:focus { outline: none; }
+.acct__back { margin: 0; }
+.acct__content { display: grid; gap: var(--space-5); }
+.acct-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  padding: var(--space-5) var(--space-6);
+  box-shadow: var(--shadow);
+}
+.acct-card > p { margin: 0 0 var(--space-3); max-width: 62ch; }
+.acct__h2 {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-display);
+  font-stretch: var(--display-stretch);
+  font-weight: 800;
+  font-size: 1.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.acct__h2:focus { outline: none; }
+.acct__h2:focus-visible { outline: 3px solid var(--focus); }
+.acct__h3 { margin: var(--space-5) 0 var(--space-2); font-size: 1.0625rem; }
+.acct__h3:first-of-type { margin-top: 0; }
+
+.acct-profile { display: flex; align-items: center; gap: var(--space-4); }
+.acct-profile p { margin: 0; }
+.acct-profile__avatar { width: 72px; height: 72px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
+.acct-profile__name { font-size: 1.25rem; font-weight: 800; }
+.acct-profile__login { font-weight: 600; }
+
+.acct-plans { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-4); }
+.acct-plan {
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--accent);
+  border-radius: var(--radius-m);
+  padding: var(--space-4);
+  background: var(--bg);
+}
+.acct-plan__name { margin: 0 0 var(--space-1); font-size: 1.125rem; }
+.acct-plan__meta { margin: 0; color: var(--text-muted); font-size: 0.9375rem; }
+.acct-plan__facts { margin: var(--space-2) 0 var(--space-3); font-weight: 600; }
+.acct-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.acct-actions a.btn { text-decoration: none; }
+.acct-confirm {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 2px solid var(--error-border);
+  border-radius: var(--radius-m);
+  background: var(--error-bg);
+}
+.acct-confirm__q { margin: 0 0 var(--space-2); font-weight: 700; }
+.acct-confirm .field-error { margin-top: var(--space-2); }
+.btn--danger { background: var(--error-border); color: var(--on-accent); border-color: var(--error-border); }
+.btn--danger-quiet { border-color: var(--error-border); }
+
+.acct-start { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.acct-start a { font-weight: 600; }
+
+.acct-toggles { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-3); }
+.acct-toggle p { margin: 0; }
+.acct-toggle .check { font-weight: 600; }
+.acct-toggle__name { font-weight: 600; }
+.acct-columns { display: grid; gap: 0 var(--space-6); grid-template-columns: minmax(0, 1fr); }
+.acct-columns .acct__h3 { margin-top: var(--space-5); }
+.acct-list { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-1); }
+
+.acct-card--danger { box-shadow: none; border-style: dashed; background: transparent; }
+
+@media (min-width: 720px) {
+  .acct-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .acct { padding: var(--space-4); }
+  .acct-card { padding: var(--space-4); }
+}

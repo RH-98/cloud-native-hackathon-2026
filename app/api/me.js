@@ -1,11 +1,12 @@
-// The signed-in user's account: GET /api/me, GET|PUT /api/me/plan,
-// GET|PUT /api/me/social. Cookie-authenticated (sb_session); writes need a
+// The signed-in user's account: GET|DELETE /api/me, GET /api/me/plans,
+// GET|PUT|DELETE /api/me/plan, GET|PUT /api/me/social. Cookie-authenticated (sb_session); writes need a
 // same-origin request (CSRF). With accounts off, GET /api/me answers
 // { enabled: false, user: null } and the other routes 404.
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
-const { HttpError, sendJson, sendError, readJsonBody } = require('./http');
+const { HttpError, send, sendJson, sendError, readJsonBody } = require('./http');
 const { validatePlanRequest } = require('./plan');
 const { sessionToken, sameOrigin } = require('../auth');
+const { clearSessionCookie } = require('../auth/github');
 
 const CONFERENCE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -103,7 +104,29 @@ function conferenceParam(url) {
 }
 
 function publicUser(user) {
-  return user ? { login: user.login, name: user.name, avatarUrl: user.avatarUrl } : null;
+  return user ? { login: user.login, name: user.name, avatarUrl: user.avatarUrl, memberSince: user.memberSince || null } : null;
+}
+
+// Picks in a saved plan's days (slots with a pick), or null when the plan
+// was saved without its days (too large) or is malformed.
+function countSavedPicks(days) {
+  if (!Array.isArray(days)) return null;
+  let n = 0;
+  for (const day of days) {
+    if (!day || !Array.isArray(day.slots)) continue;
+    for (const slot of day.slots) if (slot && slot.pick && typeof slot.pick === 'object') n += 1;
+  }
+  return n;
+}
+
+// GET /api/me/plans entries: a summary, never the plan itself.
+function planSummary(row, user) {
+  return {
+    conferenceId: row.conferenceId,
+    savedAt: row.savedAt,
+    pickCount: countSavedPicks(row.days),
+    canOptIn: isOwnProfile(row.profile, user),
+  };
 }
 
 class DbError extends Error {}
@@ -134,13 +157,29 @@ function createMeHandler(accounts) {
     const p = url.pathname;
     const m = req.method;
     if (p === '/api/me') {
-      if (m !== 'GET') return sendError(res, 'method_not_allowed', 'Use GET', { allow: 'GET' });
-      if (!accounts.enabled) return sendJson(res, 200, { enabled: false, user: null });
-      const token = sessionToken(req);
-      const user = token ? await db((d) => d.getSessionUser(token)) : null;
-      return sendJson(res, 200, { enabled: true, user: publicUser(user) });
+      if (m === 'GET') {
+        if (!accounts.enabled) return sendJson(res, 200, { enabled: false, user: null });
+        const token = sessionToken(req);
+        const user = token ? await db((d) => d.getSessionUser(token)) : null;
+        return sendJson(res, 200, { enabled: true, user: publicUser(user) });
+      }
+      if (m === 'DELETE') {
+        if (!accounts.enabled) return sendError(res, 'not_found', 'Accounts are not enabled on this server');
+        requireSameOrigin(req);
+        const user = await requireUser(req);
+        await db((d) => d.deleteUser(user.id));
+        return send(res, 204, { 'set-cookie': [clearSessionCookie()], 'cache-control': 'no-store' }, '');
+      }
+      return sendError(res, 'method_not_allowed', 'Use GET or DELETE', { allow: 'GET, DELETE' });
     }
     if (!accounts.enabled) return sendError(res, 'not_found', 'Accounts are not enabled on this server');
+
+    if (p === '/api/me/plans') {
+      if (m !== 'GET') return sendError(res, 'method_not_allowed', 'Use GET', { allow: 'GET' });
+      const user = await requireUser(req);
+      const rows = await db((d) => d.listPlans(user.id));
+      return sendJson(res, 200, { plans: rows.map((r) => planSummary(r, user)) });
+    }
 
     if (p === '/api/me/plan') {
       if (m === 'GET') {
@@ -159,7 +198,14 @@ function createMeHandler(accounts) {
         const savedAt = await db((d) => d.savePlan(user.id, body.conferenceId, state));
         return sendJson(res, 200, { savedAt });
       }
-      return sendError(res, 'method_not_allowed', 'Use GET or PUT', { allow: 'GET, PUT' });
+      if (m === 'DELETE') {
+        const conferenceId = conferenceParam(url);
+        requireSameOrigin(req);
+        const user = await requireUser(req);
+        const deleted = await db((d) => d.deletePlan(user.id, conferenceId));
+        return sendJson(res, 200, { deleted });
+      }
+      return sendError(res, 'method_not_allowed', 'Use GET, PUT or DELETE', { allow: 'GET, PUT, DELETE' });
     }
 
     if (p === '/api/me/social') {
@@ -213,4 +259,4 @@ function createMeHandler(accounts) {
   };
 }
 
-module.exports = { createMeHandler, validateSavedState, deriveSocialProfile, isOwnProfile };
+module.exports = { createMeHandler, validateSavedState, deriveSocialProfile, isOwnProfile, countSavedPicks, planSummary };

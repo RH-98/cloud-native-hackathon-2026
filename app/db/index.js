@@ -58,7 +58,10 @@ function hashToken(token) {
 }
 
 function toUser(row) {
-  return row ? { id: String(row.id), githubId: String(row.github_id), login: row.login, name: row.name, avatarUrl: row.avatar_url } : null;
+  if (!row) return null;
+  const user = { id: String(row.id), githubId: String(row.github_id), login: row.login, name: row.name, avatarUrl: row.avatar_url };
+  if (row.created_at) user.memberSince = new Date(row.created_at).toISOString();
+  return user;
 }
 
 // pool: anything with query(text, params) and connect() (a pg.Pool, or a fake in tests).
@@ -127,7 +130,7 @@ function createDb(pool) {
     async getSessionUser(token) {
       if (!token) return null;
       const { rows } = await q(
-        `SELECT u.id, u.github_id, u.login, u.name, u.avatar_url
+        `SELECT u.id, u.github_id, u.login, u.name, u.avatar_url, u.created_at
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.id = $1 AND s.expires_at > now()`,
         [hashToken(token)],
@@ -156,6 +159,53 @@ function createDb(pool) {
         [userId, conferenceId, JSON.stringify(state)],
       );
       return new Date(rows[0].saved_at).toISOString();
+    },
+
+    // The account page's list: one row per saved plan, without the plan
+    // itself. Only the plan's days (to count picks) and the profile's source
+    // and username (to tell whether it may opt in) leave the database.
+    async listPlans(userId) {
+      const { rows } = await q(
+        `SELECT conference_id, saved_at, state->'plan'->'days' AS days,
+                state->'profile'->>'source' AS profile_source, state->'profile'->>'username' AS profile_username
+           FROM saved_plans WHERE user_id = $1
+          ORDER BY saved_at DESC`,
+        [userId],
+      );
+      return rows.map((r) => ({
+        conferenceId: r.conference_id,
+        savedAt: new Date(r.saved_at).toISOString(),
+        days: r.days,
+        profile: r.profile_source ? { source: r.profile_source, username: r.profile_username } : null,
+      }));
+    },
+
+    // Returns true when a plan was deleted.
+    async deletePlan(userId, conferenceId) {
+      const { rowCount } = await q('DELETE FROM saved_plans WHERE user_id = $1 AND conference_id = $2', [userId, conferenceId]);
+      return rowCount > 0;
+    },
+
+    // Deletes the user and everything stored about them in one transaction.
+    // Every per-user table references users(id) ON DELETE CASCADE, so the
+    // final DELETE also covers tables added later; the explicit deletes keep
+    // it correct even if one is not.
+    async deleteUser(userId) {
+      await ready();
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM social_profiles WHERE user_id = $1', [userId]);
+        await client.query('DELETE FROM saved_plans WHERE user_id = $1', [userId]);
+        await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+        await client.query('DELETE FROM users WHERE id = $1', [userId]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     },
 
     async getSocialProfile(userId, conferenceId) {
