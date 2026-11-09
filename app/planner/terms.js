@@ -27,6 +27,7 @@ const KEYWORD_STOPLIST = new Set([
   'manage', 'managing', 'small', 'large', 'modern', 'native', 'cloud native', 'nowhere', 'deploy nowhere',
   'program', 'tracker', 'life', 'skills', 'life skills', 'tips', 'notes', 'personal', 'website', 'blog', 'site',
   'source', 'release', 'releases', 'version', 'versions', 'update', 'updates', 'feature', 'features',
+  'box', 'boxes', 'spec', 'specs', 'library', 'helper', 'helpers', 'example', 'examples', 'demo', 'demos',
 ]);
 
 // How many of the strongest specific tools count as "top" tools.
