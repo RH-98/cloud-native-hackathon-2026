@@ -420,6 +420,7 @@ async function restoreFlow() {
   const pending = takePending();
   if (pending && applySnapshot(state, pending)) {
     hooks.restore();
+    renderFormStart();
     await loadSocial();
     notifyPlanChanged();
     return;
@@ -432,6 +433,7 @@ async function restoreFlow() {
     if (state.plan || !applySnapshot(state, saved)) return; // never overwrite a plan the user already made
     await loadSocial();
     hooks.restore();
+    renderFormStart();
     renderSaveBox();
     syncSignedInHint();
     if (savedAt) {
