@@ -442,3 +442,20 @@ test('github + interests: a GitHub error is thrown for the caller to fall back o
     { code: 'invalid_input' },
   );
 });
+
+test('pickRepos keeps the most starred repos alongside the most recent; popular old repos keep weight', () => {
+  const { pickRepos, popularityFloor } = require('../profile').internal;
+  const repo = (name, pushed, stars) => ({ full_name: `u/${name}`, pushed_at: pushed, stargazers_count: stars });
+  const candidates = [
+    repo('new1', '2026-10-01', 0), repo('new2', '2026-09-01', 1), repo('new3', '2026-08-01', 0),
+    repo('new4', '2026-07-01', 2), repo('new5', '2026-06-01', 0),
+    repo('famous', '2018-01-01', 40000), repo('known', '2019-01-01', 900), repo('tiny', '2017-01-01', 3),
+  ];
+  const picked = pickRepos(candidates, 4).map((r) => r.full_name);
+  assert.deepEqual(picked, ['u/new1', 'u/new2', 'u/famous', 'u/known']);
+  // Few starred repos: the space left goes to the next most recent.
+  assert.deepEqual(pickRepos(candidates.filter((r) => r.stargazers_count < 10), 3).map((r) => r.full_name), ['u/new1', 'u/new2', 'u/new3']);
+  assert.equal(popularityFloor({ stargazers_count: 3 }), 0);
+  assert.equal(popularityFloor({ stargazers_count: 40000 }), 0.8);
+  assert.ok(popularityFloor({ stargazers_count: 900 }) > 0.5);
+});
