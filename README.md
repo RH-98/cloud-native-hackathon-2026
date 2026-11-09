@@ -33,7 +33,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
 | `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
-| `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour) |
+| `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour). A profile uses about 10 API calls (user, repo list, one tree per repo, up to 8 repos); dependency files, manifests and READMEs come from `raw.githubusercontent.com`, which doesn't count against the API limit and never receives the token. Profiles are cached in memory for 15 minutes |
 | `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
 | `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |

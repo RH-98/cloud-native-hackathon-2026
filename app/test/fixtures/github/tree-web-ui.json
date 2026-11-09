@@ -1,0 +1,9 @@
+{
+  "sha": "def",
+  "truncated": false,
+  "tree": [
+    { "path": "README.md", "type": "blob", "size": 500 },
+    { "path": "package.json", "type": "blob", "size": 600 },
+    { "path": "src/index.ts", "type": "blob", "size": 1000 }
+  ]
+}
