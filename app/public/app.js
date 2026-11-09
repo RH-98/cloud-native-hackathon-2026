@@ -3,6 +3,7 @@
 // API calls in api.js, state and swaps in state.js, exports in ics.js.
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
+import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConnections, renderPlan, renderProfile } from './render.js';
 import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot } from './state.js';
@@ -39,6 +40,14 @@ const el = {
   copyText: $('#copy-text'),
   resetChoices: $('#reset-choices'),
 };
+
+// Live schedule changes for the plan on screen (changes.js).
+const changeWatch = createChangeWatch({
+  container: $('#changes'),
+  announce,
+  swap: onSwap,
+  replan: (opts) => loadPlan(state.request, opts),
+});
 
 // ---------- Announcements and errors ----------
 
@@ -209,6 +218,7 @@ function showPlan({ focusKey } = {}) {
   el.planMeta.textContent = planMeta(state.plan);
   state.activeDay = renderPlan(el.planDays, state.plan, state.activeDay);
   el.resetChoices.hidden = !(state.pinned.size || state.skipped.size || state.swaps.size);
+  changeWatch.planShown();
   if (focusKey) {
     const target = el.planDays.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);
     if (target) target.focus();

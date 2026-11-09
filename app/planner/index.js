@@ -11,6 +11,7 @@ const metrics = require('../metrics');
 const snapshotSearch = require('./snapshot-search');
 const { planDays, normalizeOptions } = require('./plan');
 const { tierRank } = require('./terms');
+const { liveSnapshot } = require('../schedule/overlay');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'conferences');
 const CANDIDATES = 250;
@@ -81,7 +82,7 @@ async function buildPlan({ conferenceId, profile, options } = {}, deps = {}) {
 async function tracedBuildPlan({ conferenceId, profile, options }, deps, m) {
   const env = deps.env || process.env;
   return es.withSpan('plan.build', { 'conference.id': String(conferenceId || '').slice(0, 64) }, async (span) => {
-    const snapshot = loadSnapshot(conferenceId);
+    let snapshot = loadSnapshot(conferenceId);
     if (!snapshot) {
       const err = new Error(`No conference named ${String(conferenceId).slice(0, 64)}`);
       err.code = 'not_found';
@@ -93,6 +94,8 @@ async function tracedBuildPlan({ conferenceId, profile, options }, deps, m) {
       err.code = 'invalid_input';
       throw err;
     }
+    // Live schedule changes (schedule-watch CronJob): new times and rooms, no cancelled sessions.
+    if (deps.client || es.searchAvailable(env)) snapshot = await liveSnapshot(snapshot, deps.client || defaultClient(env));
     const opts = normalizeOptions(options, snapshot);
     const query = {
       conferenceId,

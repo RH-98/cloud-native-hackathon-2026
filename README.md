@@ -65,11 +65,12 @@ The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/
 
 | Path | What it is |
 |---|---|
-| `app/server.js`, `app/api/` | HTTP routes: `GET /api/conferences`, `POST /api/plan` (shapes in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)), static files with a strict CSP, `/healthz`, `/readyz` |
+| `app/server.js`, `app/api/` | HTTP routes: `GET /api/conferences`, `POST /api/plan`, `POST /api/connections`, `GET /api/changes` (shapes in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)), static files with a strict CSP, `/healthz`, `/readyz` |
 | `app/public/index.html`, `styles.css` | The page. Every color, font and spacing value is a CSS custom property at the top of `styles.css`, light and dark |
 | `app/public/app.js` | Wires the form, plan actions (swap, pin, skip, day tabs) and exports |
 | `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
 | `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
+| `app/public/changes.js`, `changes-logic.js` | Live schedule changes: polls `GET /api/changes` and offers a swap or re-plan for affected picks |
 
 The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` (see [Suggested connections](#suggested-connections)) and hides itself if that route isn't there.
 
@@ -125,6 +126,35 @@ Load the attendees into Elasticsearch with the one-off Job (`kubectl create -f j
 ```bash
 cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:attendees
 ```
+
+## Live schedule updates
+
+Sessions move, change rooms and get cancelled during the conference. The CronJob `schedule-watch` ([`deploy/schedule-watch.yaml`](deploy/schedule-watch.yaml), managed by Argo CD) checks every 10 minutes:
+
+1. It re-fetches each conference's schedule page (the importer's `parseSchedule`), and applies the demo overrides on top.
+2. It diffs that against `conference-sessions` ([`app/schedule/diff.js`](app/schedule/diff.js)): `time_changed`, `room_changed`, `cancelled`, `added`, or `details_changed` (title only; description and whitespace edits are noise).
+3. It writes one document per change to the index `conference-changes`, updates the changed sessions in place (a cancelled session gets `kind: cancelled`, nothing is deleted), and sets `lastCheckedAt` on the `conference-meta` record.
+
+If the page can't be fetched, or lists fewer than 80% of the sessions we hold (a layout change, not mass cancellations), the run applies only the overrides and cancels nothing. Plans then use the new times and rooms and leave cancelled sessions out ([`app/schedule/overlay.js`](app/schedule/overlay.js)). In the browser, [`app/public/changes.js`](app/public/changes.js) polls `GET /api/changes` every 60 seconds for the sessions in your plan. When a pick changed, it shows a notice with a fix: **Swap to backup** if a backup in that slot is still on, or **Re-plan around it**, which pins the session at its new time (unless that clashes with another pinned session) or skips it.
+
+The job uses the app's image (kustomize's `images:` entry rewrites both), the Secret `app-credentials`, 100m / 128Mi of requests, and reports to Dash0 as `schedule-watch`: spans `schedule.fetch`, `schedule.diff`, `es.apply_changes`, and the counter `schedule.changes` (`conference.id`, `type`, `source`).
+
+**Simulating a change for a demo.** The real schedule rarely changes while you watch. ConfigMap `schedule-overrides` ([`deploy/schedule-overrides.yaml`](deploy/schedule-overrides.yaml)) is mounted into the job, and its overrides are applied on top of the source and recorded with `source: simulated`. It ships as `[]`; the file has a commented example that moves one Tuesday 14:50 talk and cancels another. Edit it, push, let Argo CD sync, then run the job now instead of waiting up to 10 minutes:
+
+- Radar: `manage_cronjob` on `schedule-watch` in `team-ryan-hilton-real`, action `trigger`.
+- kubectl: `kubectl -n team-ryan-hilton-real create job --from=cronjob/schedule-watch schedule-watch-now-1`
+
+Set the ConfigMap back to `[]` afterwards: the next run moves the sessions back and records that as simulated too.
+
+Run it locally: `cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> SCHEDULE_OVERRIDES_FILE=./overrides.json npm run watch:schedule`.
+
+| Variable | Value / source | Purpose |
+|---|---|---|
+| `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | As for the app | Reads sessions, writes changes |
+| `SCHEDULE_OVERRIDES_FILE` | `/etc/schedule-overrides/overrides.json` (the default) | Demo overrides. A missing file means none; invalid entries are skipped with a warning |
+| `OTEL_SERVICE_NAME` | `schedule-watch` | The job's traces and metrics in Dash0 |
+
+Re-running the loader with `--force` reloads the bundled snapshot over these updates; the next watcher run finds them again.
 
 ## Observability (Dash0)
 

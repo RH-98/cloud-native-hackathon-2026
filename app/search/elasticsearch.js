@@ -13,6 +13,7 @@ const INDEX = {
   sessions: 'conference-sessions',
   sponsors: 'conference-sponsors',
   conferences: 'conference-meta',
+  changes: 'conference-changes', // schedule changes found by the schedule-watch CronJob
 };
 
 // Jina embeddings come with Elastic Cloud: no extra API key needed.
@@ -65,6 +66,23 @@ const MAPPINGS = {
       retrievedAt: { type: 'date' },
       sessionCount: { type: 'integer' },
       sponsorCount: { type: 'integer' },
+      // Set by the schedule-watch CronJob (added to existing indices with putMapping).
+      lastCheckedAt: { type: 'date' },
+      liveRetrievedAt: { type: 'date' },
+    },
+  },
+  [INDEX.changes]: {
+    dynamic: 'strict',
+    properties: {
+      id: { type: 'keyword' },
+      conferenceId: { type: 'keyword' },
+      sessionId: { type: 'keyword' },
+      sessionTitle: { type: 'text', fields: { keyword: { type: 'keyword', ignore_above: 512 } } },
+      type: { type: 'keyword' }, // time_changed | room_changed | cancelled | added | details_changed
+      before: { properties: { start: { type: 'date' }, end: { type: 'date' }, room: { type: 'keyword' } } },
+      after: { properties: { start: { type: 'date' }, end: { type: 'date' }, room: { type: 'keyword' } } },
+      detectedAt: { type: 'date' },
+      source: { type: 'keyword' }, // live | simulated
     },
   },
 };
@@ -556,6 +574,102 @@ async function searchAttendees(client, { conferenceId, profile, size = 15 }) {
     return hits.map((h) => fromAttendeeDocument(h._source)).filter((a) => a.optIn === true);
   });
 }
+// --- Schedule changes (schedule-watch CronJob, GET /api/changes) --------------
+// The watcher reads every stored session, diffs it against the source
+// (app/schedule/diff.js) and writes one conference-changes document per change.
+
+const CHANGES_MAX = 1000;
+
+// Creates missing indices, and adds the watcher's fields to an existing
+// conference-meta index (its mapping is strict, so unknown fields are refused).
+async function ensureScheduleIndices(client) {
+  const created = await ensureIndices(client);
+  const { lastCheckedAt, liveRetrievedAt } = MAPPINGS[INDEX.conferences].properties;
+  await withSpan('es.put_mapping', { 'es.index': INDEX.conferences }, () =>
+    client.indices.putMapping({ index: INDEX.conferences, properties: { lastCheckedAt, liveRetrievedAt } }),
+  );
+  return created;
+}
+
+// Every stored session of a conference, cancelled ones included.
+async function getSessions(client, conferenceId) {
+  return withSpan('es.get_sessions', { 'conference.id': conferenceId, 'es.index': INDEX.sessions }, async (span) => {
+    const res = await client.search({
+      index: INDEX.sessions,
+      size: 5000,
+      query: { bool: { filter: [{ term: { conferenceId } }] } },
+      _source: { excludes: ['semantic'] },
+    });
+    const sessions = res.hits.hits.map((h) => h._source);
+    span.setAttribute('es.hits', sessions.length);
+    return sessions;
+  });
+}
+
+// Pure, for tests. since: ISO string or null; sessionIds: array or null.
+function buildChangesQuery({ conferenceId, since, sessionIds, size = 200 }) {
+  const filter = [{ term: { conferenceId } }];
+  if (since) filter.push({ range: { detectedAt: { gt: since } } });
+  if (sessionIds && sessionIds.length) filter.push({ terms: { sessionId: sessionIds } });
+  return {
+    index: INDEX.changes,
+    size: Math.min(Math.max(1, size), CHANGES_MAX),
+    query: { bool: { filter } },
+    sort: [{ detectedAt: { order: 'desc' } }, { id: { order: 'asc' } }],
+  };
+}
+
+// Newest first. checkedAt: when the watcher last checked this conference.
+async function searchChanges(client, { conferenceId, since = null, sessionIds = null, size = 200 } = {}) {
+  const attributes = { 'conference.id': conferenceId, 'es.index': INDEX.changes, 'changes.session_ids': (sessionIds || []).length };
+  return withSpan('es.search_changes', attributes, async (span) => {
+    let changes = [];
+    try {
+      const res = await client.search(buildChangesQuery({ conferenceId, since, sessionIds, size }), SEARCH_TRANSPORT);
+      changes = res.hits.hits.map((h) => h._source);
+    } catch (err) {
+      // No watcher run yet: the index doesn't exist.
+      if (err.meta?.body?.error?.type !== 'index_not_found_exception') throw err;
+      span.addEvent('index_not_found');
+    }
+    const meta = await getLoadedConference(client, conferenceId).catch(() => null);
+    span.setAttribute('es.hits', changes.length);
+    return { changes, checkedAt: (meta && meta.lastCheckedAt) || null };
+  });
+}
+
+// Pure, for tests: diff entries + change records -> bulk operations.
+function toChangeOperations({ conferenceId, diffs, records, checkedAt, liveRetrievedAt }) {
+  const ops = [];
+  for (const d of diffs) {
+    if (d.doc) ops.push({ index: { _index: INDEX.sessions, _id: d.sessionId } }, d.doc);
+    else if (d.patch) ops.push({ update: { _index: INDEX.sessions, _id: d.sessionId } }, { doc: d.patch });
+  }
+  for (const r of records) ops.push({ index: { _index: INDEX.changes, _id: r.id } }, r);
+  const meta = { lastCheckedAt: checkedAt };
+  if (liveRetrievedAt) meta.liveRetrievedAt = liveRetrievedAt;
+  ops.push({ update: { _index: INDEX.conferences, _id: conferenceId } }, { doc: meta });
+  return ops;
+}
+
+// Writes session updates, the change records and the check time in one bulk
+// request, then refreshes so the app sees them at once.
+async function applySessionChanges(client, { conferenceId, diffs, records, checkedAt, liveRetrievedAt }) {
+  return withSpan('es.apply_changes', { 'conference.id': conferenceId, 'changes.count': records.length }, async (span) => {
+    const operations = toChangeOperations({ conferenceId, diffs, records, checkedAt, liveRetrievedAt });
+    const res = await client.bulk({ operations, refresh: true });
+    const failures = [];
+    for (const item of res.items) {
+      const result = item.index || item.update;
+      if (result && result.error) failures.push({ id: result._id, reason: result.error.reason });
+    }
+    span.setAttribute('es.documents.failed', failures.length);
+    if (failures.length) span.setStatus({ code: SpanStatusCode.ERROR, message: `${failures.length} writes failed` });
+    return { written: res.items.length - failures.length, failures };
+  });
+}
+
+// --- End schedule changes -----------------------------------------------------
 
 module.exports = {
   INDEX,
@@ -584,4 +698,11 @@ module.exports = {
   loadAttendees,
   attendeeQueries,
   searchAttendees,
+  // Schedule changes
+  ensureScheduleIndices,
+  getSessions,
+  buildChangesQuery,
+  searchChanges,
+  toChangeOperations,
+  applySessionChanges,
 };

@@ -5,12 +5,15 @@ const { handleConferences, hasConference } = require('./conferences');
 const { createPlanHandler } = require('./plan');
 const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
+const { createChangesHandler } = require('./changes');
+const schedule = require('../schedule');
 
 // connections: optional deps for handleConnections (tests pass a fake search or env).
-function createHandler({ buildProfile, buildPlan, publicDir, connections } = {}) {
+function createHandler({ buildProfile, buildPlan, publicDir, connections, getChanges = schedule.getChanges } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
   const handleConnections = createConnectionsHandler(connections);
   const handleStatic = createStaticHandler(publicDir);
+  const handleChanges = createChangesHandler({ getChanges, hasConference });
 
   return function handler(req, res) {
     let url;
@@ -40,6 +43,10 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections } = {})
       return handleConnections(req, res).catch(() => {
         if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
       });
+    }
+    if (p === '/api/changes') {
+      if (req.method !== 'GET') return sendError(res, 'method_not_allowed', 'Use GET', { allow: 'GET' });
+      return handleChanges(req, res, url);
     }
     if (p.startsWith('/api/')) return sendError(res, 'not_found', 'No such API route');
     return handleStatic(req, res, p);

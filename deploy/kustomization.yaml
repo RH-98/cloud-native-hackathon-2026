@@ -9,6 +9,8 @@ resources:
   - service.yaml
   - httproute.yaml
   - pdb.yaml
+  - schedule-overrides.yaml
+  - schedule-watch.yaml
 images:
   - name: app
     newName: ghcr.io/rh-98/cloud-native-hackathon-2026
