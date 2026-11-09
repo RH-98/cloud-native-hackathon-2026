@@ -147,15 +147,31 @@ export function createChangeWatch({ container, announce, swap, replan }) {
         message: `Re-planning around ${title}…`,
         done: entry.replan.pin ? `Kept ${title} at its new time. Route updated.` : `Dropped ${title}. Route updated.`,
         checkedAt,
+      }).then((ok) => {
+        // On failure keep the notice, so the user can try again.
+        if (!ok) {
+          dismissed.delete(entry.change.id);
+          rendered = '';
+          render();
+        }
+        keepFocus();
       });
     } else {
       render();
       announce('Notice dismissed.');
-      const next = container.querySelector('button') || document.getElementById('plan-heading');
-      if (next && !next.matches('button')) next.setAttribute('tabindex', '-1');
-      next?.focus();
+      keepFocus();
     }
   });
+
+  // The pressed button may be gone: move focus to the next notice, or the
+  // plan heading when none is left, so keyboard users keep their place.
+  function keepFocus() {
+    if (container.contains(document.activeElement)) return;
+    const next = container.querySelector('button') || document.getElementById('plan-heading');
+    if (!next) return;
+    if (!next.matches('button')) next.setAttribute('tabindex', '-1');
+    next.focus();
+  }
 
   // Called whenever the plan on screen changes (new plan, swap, pin, skip).
   function planShown() {

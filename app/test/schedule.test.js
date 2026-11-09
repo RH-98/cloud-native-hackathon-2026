@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { diffSessions, sameInstant } = require('../schedule/diff');
 const { normalizeOverrides, readOverrides, applyOverrides } = require('../schedule/overrides');
-const { overlaySnapshot, latestBySession, liveSnapshot, _cache } = require('../schedule/overlay');
+const { overlaySnapshot, latestBySession, liveSnapshot } = require('../schedule/overlay');
 const { watchConference } = require('../schedule/watch');
 const es = require('../search/elasticsearch');
 
@@ -144,49 +144,25 @@ test('overlay: the latest change per session wins; cancelled sessions are droppe
   assert.equal(overlaySnapshot(snapshot, []), snapshot);
 });
 
-test('overlay: a later watcher check invalidates cached changes', async () => {
-  _cache.clear();
-  const snapshot = { conference: { id: 'kubecon-na-2026' }, sessions: [session(1)] };
-  let changes = [{
-    sessionId: 'kubecon-na-2026:1',
-    type: 'time_changed',
-    detectedAt: '2026-11-09T20:00:00.000Z',
-    after: { start: '2026-11-10T13:00:00-07:00' },
-  }];
-  let checkedAt = '2026-11-09T20:00:00.000Z';
-  let searches = 0;
-  const client = {
-    async search() {
-      searches += 1;
-      return { hits: { hits: changes.map((change) => ({ _source: change })) } };
-    },
-    async get() {
-      return { _source: { lastCheckedAt: checkedAt } };
-    },
-  };
-
-  const cached = await liveSnapshot(snapshot, client, { now: 1 });
-  assert.equal(cached.sessions[0].start, '2026-11-10T13:00:00-07:00');
-
-  changes = [{
-    sessionId: 'kubecon-na-2026:1',
-    type: 'time_changed',
-    detectedAt: '2026-11-09T21:00:00.000Z',
-    after: { start: '2026-11-10T14:00:00-07:00' },
-  }];
-  checkedAt = '2026-11-09T21:00:00.000Z';
-  const refreshed = await liveSnapshot(snapshot, client, { now: 2, checkedAt });
-  assert.equal(refreshed.sessions[0].start, '2026-11-10T14:00:00-07:00');
-  assert.equal(searches, 2);
-  _cache.clear();
-});
-
-test('overlay: liveSnapshot falls back to the snapshot when Elasticsearch fails', async () => {
-  _cache.clear();
+test('overlay: liveSnapshot reads the latest changes on every call, and falls back when Elasticsearch fails', async () => {
   const snapshot = { conference: { id: 'kubecon-na-2026' }, sessions: [session(1)] };
   const broken = { search: async () => { throw new Error('down'); }, get: async () => { throw new Error('down'); } };
   assert.equal(await liveSnapshot(snapshot, broken), snapshot);
-  _cache.clear();
+
+  let changes = [];
+  let searches = 0;
+  const client = {
+    search: async () => {
+      searches += 1;
+      return { hits: { hits: changes.map((c) => ({ _source: c })) } };
+    },
+    get: async () => ({ _source: {} }),
+  };
+  assert.equal(await liveSnapshot(snapshot, client), snapshot);
+  // A change recorded right after the first plan shows up in the very next one.
+  changes = [{ sessionId: 'kubecon-na-2026:1', type: 'cancelled', detectedAt: '2026-11-09T21:00:00Z', after: null }];
+  assert.deepEqual((await liveSnapshot(snapshot, client)).sessions, []);
+  assert.equal(searches, 2);
 });
 
 // --- Elasticsearch helpers ----------------------------------------------------------
