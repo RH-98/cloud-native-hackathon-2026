@@ -139,6 +139,7 @@ export function createChangeWatch({ container, announce, swap, replan }) {
         dismissed.delete(entry.change.id);
         return;
       }
+      const prev = { pinned: state.pinned, skipped: state.skipped };
       const { pinned, skipped } = replanChoices(entry, state.pinned, state.skipped);
       state.pinned = pinned;
       state.skipped = skipped;
@@ -149,6 +150,8 @@ export function createChangeWatch({ container, announce, swap, replan }) {
       }).then((ok) => {
         // On failure keep the notice, so the user can try again.
         if (!ok) {
+          state.pinned = prev.pinned;
+          state.skipped = prev.skipped;
           dismissed.delete(entry.change.id);
           rendered = '';
           render();
@@ -165,7 +168,8 @@ export function createChangeWatch({ container, announce, swap, replan }) {
   // The pressed button may be gone: move focus to the next notice, or the
   // plan heading when none is left, so keyboard users keep their place.
   function keepFocus() {
-    if (container.contains(document.activeElement)) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && document.contains(active)) return;
     const next = container.querySelector('button') || document.getElementById('plan-heading');
     if (!next) return;
     if (!next.matches('button')) next.setAttribute('tabindex', '-1');
