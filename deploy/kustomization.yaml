@@ -9,6 +9,7 @@ resources:
   - service.yaml
   - httproute.yaml
   - pdb.yaml
+  - postgres.yaml
 images:
   - name: app
     newName: ghcr.io/rh-98/cloud-native-hackathon-2026

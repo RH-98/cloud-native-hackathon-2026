@@ -4,9 +4,15 @@ const { send, sendError } = require('./http');
 const { handleConferences, hasConference } = require('./conferences');
 const { createPlanHandler } = require('./plan');
 const { createStaticHandler } = require('./static');
+const { createAuthHandler } = require('./auth');
+const { createMeHandler } = require('./me');
+const { createAccounts } = require('../auth');
 
-function createHandler({ buildProfile, buildPlan, publicDir } = {}) {
+// accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
+function createHandler({ buildProfile, buildPlan, publicDir, accounts = createAccounts() } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
+  const handleAuth = createAuthHandler(accounts);
+  const handleMe = createMeHandler(accounts);
   const handleStatic = createStaticHandler(publicDir);
 
   return function handler(req, res) {
@@ -32,6 +38,12 @@ function createHandler({ buildProfile, buildPlan, publicDir } = {}) {
         if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
       });
     }
+    if (p.startsWith('/auth/')) {
+      return Promise.resolve(handleAuth(req, res, url)).catch(() => {
+        if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
+      });
+    }
+    if (p === '/api/me' || p.startsWith('/api/me/')) return handleMe(req, res, url);
     if (p.startsWith('/api/')) return sendError(res, 'not_found', 'No such API route');
     return handleStatic(req, res, p);
   };

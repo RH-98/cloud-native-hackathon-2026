@@ -24,6 +24,7 @@ Checks: https://app.radarhq.io/checks?scope=k8acMtt3p7U&namespace=team-ryan-hilt
 
 - 12:55 PM: we created the one-off Job `load-elasticsearch-001` through Radar's MCP server (`apply_resource`, mode=create) with image `a3ecd54`. It created the Elasticsearch indices and indexed 845 documents (600 KubeCon sessions, 244 sponsors, 1 conference record) in 13.9s, and Radar showed it Complete about 30s after creation. Its traces go to Dash0 as `conference-loader`.
 - Hardening PR: fixed the 4 Checks findings on `Deployment/app` in git (no service account token, read-only root filesystem with a 64Mi `/tmp` emptyDir, PodDisruptionBudget `app` with `minAvailable: 1`, topology spread across nodes with `ScheduleAnyway`). Telemetry: `app/telemetry.js` replaces the auto-instrumentation register hook, so the `/healthz` and `/readyz` probes no longer send spans to Dash0, the cloud resource detectors are off, and spans carry `service.version` from `APP_VERSION`.
+- Accounts PR: Postgres for saved plans comes from the CloudNativePG operator already in the cluster, as a one-instance `Cluster` (`deploy/postgres.yaml`) shipped through GitOps like the app; the app reads Secret `db-app` and migrates its tables on start.
 
 ## After
 

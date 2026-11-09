@@ -23,6 +23,8 @@ const SECURITY_HEADERS = {
 
 const STATUS_BY_CODE = {
   invalid_input: 400,
+  unauthorized: 401,
+  forbidden: 403,
   not_found: 404,
   method_not_allowed: 405,
   payload_too_large: 413,
@@ -30,6 +32,7 @@ const STATUS_BY_CODE = {
   rate_limited: 429,
   internal: 500,
   upstream: 502,
+  unavailable: 503,
 };
 
 class HttpError extends Error {
