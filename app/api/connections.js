@@ -74,7 +74,12 @@ async function handleConnections(body, deps = {}) {
   let connections = result.connections;
   if (deps.viewer && deps.connectionStates) {
     // Best effort: without states the cards still render, just without Connect state.
-    const states = await Promise.resolve().then(() => deps.connectionStates(conferenceId)).catch(() => null);
+    const states = await Promise.resolve().then(() => deps.connectionStates(conferenceId)).catch((err) => {
+      const span = trace.getActiveSpan();
+      span?.recordException(err);
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection states unavailable' });
+      return null;
+    });
     if (states) connections = withRequestStates(connections, states);
   }
   return {

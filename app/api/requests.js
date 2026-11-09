@@ -98,6 +98,7 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
   async function view(r, user, cache) {
     const ctx = await contextFor(user, r.conferenceId, cache);
     const outgoing = r.fromUserId === String(user.id);
+    const hideDecline = outgoing && r.status === 'declined';
     let person;
     let shared = [];
     let simulated = false;
@@ -124,9 +125,9 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
       conferenceId: r.conferenceId,
       direction: outgoing ? 'outgoing' : 'incoming',
       // A decline stays "pending" for the sender.
-      status: outgoing && r.status === 'declined' ? 'pending' : r.status,
+      status: hideDecline ? 'pending' : r.status,
       createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
+      updatedAt: hideDecline ? r.createdAt : r.updatedAt,
       person,
       shared,
       ...(simulated ? { simulated: true, note: DEMO_NOTE } : {}),

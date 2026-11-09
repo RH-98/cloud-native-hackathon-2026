@@ -180,7 +180,12 @@ function createMeHandler(accounts) {
         // For the header badge: how many connection requests wait for an answer.
         // Best effort: a failure here leaves the badge out, not the whole answer.
         if (user && typeof accounts.db.countIncomingConnectionRequests === 'function') {
-          const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch(() => null);
+          const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch((err) => {
+            const span = trace.getActiveSpan();
+            span?.recordException(err);
+            span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection request count unavailable' });
+            return null;
+          });
           if (incoming !== null) body.connectionRequests = { incoming };
         }
         return sendJson(res, 200, body);
