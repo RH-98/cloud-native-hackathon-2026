@@ -59,6 +59,14 @@ test('profileTerms: labels, dashes as spaces, generic terms damped, risky langua
   assert.deepEqual(byKey['argo cd'].variants, ['argo cd', 'argocd']);
 });
 
+test('cloud native and native topics are retained, with cloud native down-weighted as generic', () => {
+  const byKey = Object.fromEntries(terms.profileTerms({ topics: ['cloud native', 'native'] }).map((x) => [x.key, x]));
+  assert.equal(byKey['cloud native'].generic, true);
+  assert.equal(byKey['cloud native'].weight, 0.09);
+  assert.equal(byKey.native.generic, false);
+  assert.equal(byKey.native.weight, 0.6);
+});
+
 test('buildSessionSearch: an RRF retriever over a lexical and a semantic retriever, with filters', () => {
   const { request, lexical, semantic } = es.buildSessionSearch({
     conferenceId: 'kubecon-na-2026',
