@@ -20,7 +20,7 @@ function dash0WebConfig(env = process.env) {
   let url = DEFAULT_ENDPOINT;
   try {
     const parsed = new URL(env.DASH0_WEB_ENDPOINT || DEFAULT_ENDPOINT);
-    if (parsed.protocol === 'https:') url = parsed.origin;
+    if (parsed.protocol === 'https:' && parsed.origin === DEFAULT_ENDPOINT) url = parsed.origin;
   } catch {
     // Keep the default endpoint.
   }

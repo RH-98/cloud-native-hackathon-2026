@@ -53,11 +53,12 @@ test('GET /config.js with the token answers the Dash0 Web SDK settings', async (
   });
 });
 
-test('dash0WebConfig defaults the endpoint and refuses non-https ones', () => {
+test('dash0WebConfig only accepts the HTTPS origin allowed by the CSP', () => {
   assert.equal(dash0WebConfig({}), null);
   assert.equal(dash0WebConfig({ DASH0_WEB_AUTH_TOKEN: '  ' }), null);
   assert.equal(dash0WebConfig({ DASH0_WEB_AUTH_TOKEN: TOKEN }).url, 'https://ingress.us-west-2.aws.dash0.com');
   assert.equal(dash0WebConfig({ DASH0_WEB_AUTH_TOKEN: TOKEN, DASH0_WEB_ENDPOINT: 'http://evil.example' }).url, 'https://ingress.us-west-2.aws.dash0.com');
+  assert.equal(dash0WebConfig({ DASH0_WEB_AUTH_TOKEN: TOKEN, DASH0_WEB_ENDPOINT: 'https://evil.example' }).url, 'https://ingress.us-west-2.aws.dash0.com');
 });
 
 test('GET /vendor/dash0-sdk-web.js serves the SDK as JavaScript; other vendor paths 404', async (t) => {
