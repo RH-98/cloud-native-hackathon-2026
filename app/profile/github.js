@@ -41,15 +41,19 @@ function encodePath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
+// maxCalls caps every request (API and raw files); maxApiCalls caps the ones
+// that count against GitHub's API rate limit.
 // contentsApi: read files through the API (GET /repos/{o}/{r}/contents/{path},
 // raw media type) with the token, never raw.githubusercontent.com. Used for
 // private repos with a user's short-lived GitHub App token.
-function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 40, contentsApi = false } = {}) {
+function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 60, maxApiCalls = 25, contentsApi = false } = {}) {
   let calls = 0;
+  let apiCalls = 0;
 
   async function request(span, url, { accept, auth }) {
-    if (calls >= maxCalls) throw new BudgetExhausted('call budget exhausted');
+    if (calls >= maxCalls || (auth && apiCalls >= maxApiCalls)) throw new BudgetExhausted('call budget exhausted');
     calls += 1;
+    if (auth) apiCalls += 1;
     const headers = { 'User-Agent': USER_AGENT, Accept: accept };
     if (auth) {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
@@ -85,6 +89,14 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
       return calls;
     },
 
+    get apiCalls() {
+      return apiCalls;
+    },
+
+    get apiCallsLeft() {
+      return Math.max(0, maxApiCalls - apiCalls);
+    },
+
     fetchUser(username) {
       return withSpan('github.fetch_user', {}, async (span) => {
         const res = await api(span, `/users/${encodeURIComponent(username)}`);
@@ -112,6 +124,42 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
         span.setAttribute('github.tree.entries', tree.length);
         span.setAttribute('github.tree.truncated', Boolean(body.truncated));
         return tree;
+      });
+    },
+
+    // Byte counts per language: { "Go": 12345, ... }.
+    fetchLanguages(owner, repo) {
+      return withSpan('github.fetch_languages', {}, async (span) => {
+        const res = await api(span, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`);
+        const body = await res.json();
+        return body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+      });
+    },
+
+    // The user's most recently starred public repos.
+    fetchStarred(username, perPage = 50) {
+      return withSpan('github.fetch_starred', {}, async (span) => {
+        const res = await api(span, `/users/${encodeURIComponent(username)}/starred?per_page=${perPage}`);
+        const repos = await res.json();
+        span.setAttribute('github.starred_count', Array.isArray(repos) ? repos.length : 0);
+        return Array.isArray(repos) ? repos : [];
+      });
+    },
+
+    // The user's recent public activity (pushes, PRs, issues…).
+    fetchEvents(username) {
+      return withSpan('github.fetch_events', {}, async (span) => {
+        const res = await api(span, `/users/${encodeURIComponent(username)}/events/public?per_page=100`);
+        const events = await res.json();
+        span.setAttribute('github.event_count', Array.isArray(events) ? events.length : 0);
+        return Array.isArray(events) ? events : [];
+      });
+    },
+
+    fetchRepo(owner, repo) {
+      return withSpan('github.fetch_repo', {}, async (span) => {
+        const res = await api(span, `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+        return res.json();
       });
     },
 

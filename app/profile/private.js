@@ -15,6 +15,7 @@ const CONCURRENCY = 4;
 const MAX_TOOLS = 15;
 const MAX_LANGUAGES = 6;
 const PRIVATE_EVIDENCE = 'a private repo';
+const STRENGTHS = ['strong', 'medium', 'light']; // strongest first
 
 const isPrivate = (r) => Boolean(r && (r.private || (r.visibility && r.visibility !== 'public')));
 const clip = (s, n) => String(s).slice(0, n);
@@ -35,7 +36,13 @@ function sanitizePrivateProfile(p) {
   const tools = (Array.isArray(p.tools) ? p.tools : [])
     .filter((t) => t && typeof t.name === 'string')
     .slice(0, MAX_TOOLS)
-    .map((t) => ({ name: clip(t.name, 60), label: clip(typeof t.label === 'string' ? t.label : label(t.name), 60), weight: weight(t.weight) }));
+    .map((t) => ({
+      name: clip(t.name, 60),
+      label: clip(typeof t.label === 'string' ? t.label : label(t.name), 60),
+      weight: weight(t.weight),
+      strength: STRENGTHS.includes(t.strength) ? t.strength : 'light',
+      kinds: (Array.isArray(t.kinds) ? t.kinds : []).filter((k) => typeof k === 'string' && /^[a-z]{1,20}$/.test(k)).slice(0, 8),
+    }));
   const languages = (Array.isArray(p.languages) ? p.languages : [])
     .filter((l) => l && typeof l.name === 'string')
     .slice(0, MAX_LANGUAGES)
@@ -59,15 +66,18 @@ async function buildPrivateProfile({ login, repos, token }, deps = {}) {
       token,
       timeoutMs: deps.timeoutMs || 5000,
       maxCalls,
+      maxApiCalls: maxCalls, // every call goes to the API here
       contentsApi: true,
     });
     const filesPerRepo = Math.max(1, Math.min(5, Math.floor((maxCalls - picked.length) / picked.length)));
     const state = { stop: false };
+    const guard = internal.guarded(state);
     const scans = await internal.mapLimit(picked, deps.concurrency || CONCURRENCY, (repo) =>
-      internal.scanRepo(client, repo, state, filesPerRepo),
+      internal.scanRepo(client, repo, guard, filesPerRepo),
     );
-    // aggregate() also makes topics, keywords and evidence (repo names): drop them.
-    const { tools, languages } = internal.aggregate({ login: login || '' }, picked, scans);
+    // aggregate() also makes topics, keywords, evidence and sources (repo
+    // names): only tool and language labels are kept.
+    const { tools, languages } = internal.aggregate({ user: { login: login || '' }, repos: picked, scans, now: Date.now() });
     span.setAttribute('github.calls', client.calls);
     span.setAttribute('profile.partial', state.stop);
     return sanitizePrivateProfile({ tools, languages, repoCount: picked.length });
@@ -82,14 +92,21 @@ const byWeight = (a, b) => b.weight - a.weight || a.name.localeCompare(b.name);
 function mergePrivate(profile, stored) {
   const priv = sanitizePrivateProfile(stored);
   if (!profile || !priv || !priv.repoCount) return profile;
-  const tools = (profile.tools || []).map((t) => ({ ...t, evidence: [...(t.evidence || [])] }));
+  const tools = (profile.tools || []).map((t) => ({
+    ...t,
+    evidence: [...(t.evidence || [])],
+    ...(Array.isArray(t.sources) ? { sources: [...t.sources] } : {}),
+  }));
   for (const t of priv.tools) {
+    const source = { repo: PRIVATE_EVIDENCE, kinds: t.kinds };
     const hit = tools.find((x) => x.name === t.name);
     if (hit) {
       hit.weight = Math.max(hit.weight || 0, t.weight);
+      if (STRENGTHS.indexOf(t.strength) < STRENGTHS.indexOf(hit.strength ?? 'light')) hit.strength = t.strength;
       if (!hit.evidence.includes(PRIVATE_EVIDENCE)) hit.evidence = [...hit.evidence.slice(0, 4), PRIVATE_EVIDENCE];
+      if (hit.sources && !hit.sources.some((x) => x.repo === PRIVATE_EVIDENCE)) hit.sources = [...hit.sources.slice(0, 4), source];
     } else {
-      tools.push({ name: t.name, label: t.label, weight: t.weight, evidence: [PRIVATE_EVIDENCE] });
+      tools.push({ name: t.name, label: t.label, weight: t.weight, strength: t.strength, kinds: t.kinds, evidence: [PRIVATE_EVIDENCE], sources: [source] });
     }
   }
   const languages = (profile.languages || []).map((l) => ({ ...l }));
