@@ -191,6 +191,7 @@ function mergeInterests(profile, interestsProfile) {
       weight: typedWeight(t),
       evidence: [],
     })).slice(0, MAX_TOOLS),
+    pastedTopics: interestsProfile.topics || [],
     topics: [...new Set([...(interestsProfile.topics || []), ...(profile.topics || [])])].slice(0, 20),
     keywords: [...new Set([...(interestsProfile.keywords || []), ...(profile.keywords || [])])].slice(0, MAX_KEYWORDS),
   };

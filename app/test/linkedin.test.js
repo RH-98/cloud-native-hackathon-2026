@@ -148,11 +148,13 @@ test('blending with a GitHub profile keeps repo evidence and adds LinkedIn signa
   assert.equal(byName.go === undefined, true);
   assert.equal(merged.languages.find((l) => l.name === 'Go').weight, 0.9);
   assert.ok(merged.topics.includes('platform engineering') && merged.topics.includes('gitops'));
+  assert.deepEqual(merged.pastedTopics, pasted.topics);
   assert.ok(merged.keywords.includes('monorepo') && merged.keywords.includes('aws'));
   // Typed interests still blend exactly as before.
   const typed = mergeInterests(github, await buildProfile({ interests: 'crossplane' }, { now: NOW }));
   assert.equal(typed.tools.find((t) => t.name === 'crossplane').weight, 0.9);
   assert.equal(typed.pastedFrom, undefined);
+  assert.deepEqual(typed.pastedTopics, []);
 });
 
 test('the pasted text never reaches logs or span attributes', async () => {
