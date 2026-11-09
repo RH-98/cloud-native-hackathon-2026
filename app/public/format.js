@@ -77,6 +77,28 @@ export function formatDay(date, style = 'short') {
   return fmt('UTC', options).format(d);
 }
 
+// "Nov 9–12, 2026", "Nov 30 – Dec 2, 2026" or "Dec 30, 2026 – Jan 2, 2027"
+// from "YYYY-MM-DD" dates.
+export function formatDateSpan(startDate, endDate) {
+  const d = (s) => new Date(`${s}T12:00:00Z`);
+  if (!startDate) return '';
+  const full = (s) => fmt('UTC', { month: 'short', day: 'numeric', year: 'numeric' }).format(d(s));
+  if (!endDate || endDate === startDate) return full(startDate);
+  const [sy, sm] = startDate.split('-');
+  const [ey, em] = endDate.split('-');
+  const monthDay = (s) => fmt('UTC', { month: 'short', day: 'numeric' }).format(d(s));
+  if (sy !== ey) return `${full(startDate)} – ${full(endDate)}`;
+  if (sm !== em) return `${monthDay(startDate)} – ${monthDay(endDate)}, ${sy}`;
+  return `${monthDay(startDate)}–${Number(endDate.split('-')[2])}, ${sy}`;
+}
+
+// The city part of a venue address: "Salt Palace Convention Center, Salt
+// Lake City, Utah" -> "Salt Lake City, Utah". Short addresses stay as they are.
+export function cityOf(location) {
+  const parts = String(location || '').split(',').map((p) => p.trim()).filter(Boolean);
+  return parts.length >= 3 ? parts.slice(1).join(', ') : parts.join(', ');
+}
+
 // Every date from start to end inclusive, as "YYYY-MM-DD".
 export function dateRange(startDate, endDate) {
   const out = [];
