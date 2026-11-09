@@ -1,0 +1,10 @@
+{
+  "name": "mesh-lab",
+  "full_name": "other-org/mesh-lab",
+  "private": false,
+  "fork": false,
+  "topics": ["linkerd", "service-mesh"],
+  "description": "Experiments with mTLS between services",
+  "language": "Rust",
+  "pushed_at": "2026-11-05T10:00:00Z"
+}
