@@ -804,3 +804,15 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
 .account-start__btn { font-weight: 800; text-decoration: none; }
 .account-start__hint { margin: 0; flex: 1 1 14rem; }
 .account-signed .btn { margin-left: var(--space-1); }
+/* Live schedule changes (changes.js). Marked with an icon and a "Schedule change:" label, not color alone. */
+.changes {
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  border-left: 8px solid var(--pin);
+  border-radius: var(--radius-m);
+  padding: var(--space-4);
+}
+.changes__title { margin: 0 0 var(--space-2); font-size: 1.125rem; }
+.changes__meta { margin: 0 0 var(--space-3); color: var(--text-muted); font-size: 0.875rem; }
+.changes__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.change__text { margin: 0 0 var(--space-2); }

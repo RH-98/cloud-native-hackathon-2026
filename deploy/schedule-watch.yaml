@@ -1,0 +1,105 @@
+# Checks the live conference schedule every 10 minutes and records changes
+# (moved, re-roomed, cancelled, added sessions) in Elasticsearch, where the
+# app reads them for GET /api/changes. See app/scripts/watch-schedule.js.
+# The image is the app's: kustomization.yaml's images entry rewrites "app" to
+# the same GHCR image and tag as Deployment/app, so both always run one build.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: schedule-watch
+  labels:
+    app: schedule-watch
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: schedule-watch
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: schedule-watch
+        spec:
+          restartPolicy: Never
+          # The watcher never calls the Kubernetes API, so it needs no token.
+          automountServiceAccountToken: false
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: overrides
+              configMap:
+                name: schedule-overrides
+          containers:
+            - name: watch
+              image: app
+              command: ["node", "scripts/watch-schedule.js"]
+              env:
+                - name: ELASTICSEARCH_URL
+                  value: "https://my-vectordb-project-ebb49c.es.us-east4.gcp.elastic.cloud:443"
+                - name: ELASTICSEARCH_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-credentials
+                      key: elasticsearch-api-key
+                - name: SCHEDULE_OVERRIDES_FILE
+                  value: "/etc/schedule-overrides/overrides.json"
+                # Traces and the schedule.changes metric go to Dash0.
+                - name: NODE_OPTIONS
+                  value: "--require ./telemetry.js"
+                - name: OTEL_SERVICE_NAME
+                  value: "schedule-watch"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "https://ingress.us-west-2.aws.dash0.com"
+                - name: OTEL_EXPORTER_OTLP_PROTOCOL
+                  value: "http/protobuf"
+                - name: OTEL_EXPORTER_OTLP_HEADERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-credentials
+                      key: otel-exporter-otlp-headers
+                - name: OTEL_TRACES_EXPORTER
+                  value: "otlp"
+                - name: OTEL_METRICS_EXPORTER
+                  value: "otlp"
+                - name: OTEL_LOGS_EXPORTER
+                  value: "none"
+                - name: OTEL_NODE_DISABLED_INSTRUMENTATIONS
+                  value: "fs"
+                - name: OTEL_NODE_RESOURCE_DETECTORS
+                  value: "env,host,os,process,serviceinstance"
+                - name: K8S_POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: "k8s.namespace.name=team-ryan-hilton-real,k8s.pod.name=$(K8S_POD_NAME),k8s.cronjob.name=schedule-watch,deployment.environment.name=hackathon"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 384Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: overrides
+                  mountPath: /etc/schedule-overrides
+                  readOnly: true
+              securityContext:
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                seccompProfile:
+                  type: RuntimeDefault
+                capabilities:
+                  drop: ["ALL"]
