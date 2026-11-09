@@ -214,7 +214,7 @@ function pickSponsor(ranked, usedToday, usedEver) {
   );
 }
 
-function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, utcOffset, sponsors, boothsOpen, usedSponsors }) {
+function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, utcOffset, timeZone, sponsors, boothsOpen, usedSponsors }) {
   const gapMs = options.breakMinutes * MINUTE;
   const pinnedIds = new Set(pinnedRecs.map((r) => r.session.id));
   const good = recs.filter((r) => r.score >= MIN_SCORE && !pinnedIds.has(r.session.id));
@@ -276,19 +276,22 @@ function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, u
   for (const slot of freeSlots) {
     const mins = (ms(slot.end) - ms(slot.start)) / MINUTE;
     slot.logistics = logisticsIn(slot, logistics);
-    if (mins >= SHORT_GAP_MINUTES) slot.backups = freeBackups(slot, pool, pickedIds);
+    if (mins >= SHORT_GAP_MINUTES) slot.backups = freeBackups(slot, pool, pickedSessions, gapMs);
     slot.booths = booths
       .filter((b) => b.gap && b.gap.start === slot.start && b.gap.end === slot.end)
       .map(({ sponsor, score, reasons }) => ({ sponsor, score, reasons }));
     if (boothsOpen && !slot.booths.length && mins >= SHORT_GAP_MINUTES) {
       for (let i = 0; i < SHORT_GAP_BOOTHS; i += 1) {
-        const next = sponsors.find((r) => !usedToday.has(r.sponsor.id));
+        const next = pickSponsor(sponsors, usedToday, usedSponsors);
         if (!next) break;
         usedToday.add(next.sponsor.id);
+        usedSponsors.add(next.sponsor.id);
+        const gap = { start: slot.start, end: slot.end };
+        booths.push({ sponsor: next.sponsor, score: next.score, reasons: next.reasons, gap });
         slot.booths.push({ sponsor: next.sponsor, score: next.score, reasons: next.reasons });
       }
     }
-    slot.suggestion = suggestionFor(mins, slot);
+    slot.suggestion = suggestionFor(mins, slot, timeZone);
   }
   return { date, slots, booths };
 }
@@ -313,10 +316,11 @@ function windowFit(session, gap) {
 
 // Up to FREE_BACKUPS sessions on during a free window, best match first even
 // when below the pick floor. Sponsored demos only when nothing else is on.
-function freeBackups(gap, pool, pickedIds) {
+function freeBackups(gap, pool, pickedSessions, gapMs = 0) {
+  const pickedIds = new Set(pickedSessions.map((session) => session.id));
   const fits = [];
   for (const rec of pool) {
-    if (pickedIds.has(rec.session.id)) continue;
+    if (pickedIds.has(rec.session.id) || pickedSessions.some((session) => conflicts(rec.session, session, gapMs))) continue;
     const fit = windowFit(rec.session, gap);
     if (fit) fits.push({ rec, fit });
   }
@@ -377,13 +381,28 @@ function clockRange(start, end) {
   return a.half === b.half ? `${a.text}–${b.text} ${b.half}` : `${a.text} ${a.half}–${b.text} ${b.half}`;
 }
 
+function zoneLabel(timeZone, iso) {
+  if (!timeZone) return '';
+  for (const timeZoneName of ['shortGeneric', 'short']) {
+    try {
+      const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName })
+        .formatToParts(new Date(iso))
+        .find((p) => p.type === 'timeZoneName');
+      if (part && !/^GMT/.test(part.value)) return part.value;
+    } catch {
+      // Try the next format, then fall back to the IANA name.
+    }
+  }
+  return timeZone;
+}
+
 // "Salt Palace | Level 1 | Halls A-C" -> "Halls A-C".
 function shortRoom(room) {
   return room ? String(room).split('|').pop().trim() : '';
 }
 
 // One friendly line for a free window, in place of a bare "free".
-function suggestionFor(mins, slot) {
+function suggestionFor(mins, slot, timeZone) {
   const { logistics, booths, backups } = slot;
   const food =
     logistics.find((l) => PLAIN_MEAL.test(l.title)) ||
@@ -396,7 +415,7 @@ function suggestionFor(mins, slot) {
   }
   const parts = [];
   if (food) {
-    const when = clockRange(food.start, food.end);
+    const when = [clockRange(food.start, food.end), zoneLabel(timeZone, food.start)].filter(Boolean).join(' ');
     if (PLAIN_MEAL.test(food.title)) parts.push(`${food.title.replace(/ break$/i, '')} is served ${when}${where}.`);
     else parts.push(`${food.title}: ${when}${where}.`);
   }
@@ -433,6 +452,7 @@ function keynoteRecs(snapshot, matched, byId, isEligible) {
 // [{ sponsor, score, reasons }]. options: normalized (normalizeOptions).
 function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () => 0 }) {
   const utcOffset = (snapshot.conference && snapshot.conference.utcOffset) || 'Z';
+  const timeZone = snapshot.conference && snapshot.conference.timezone;
   const skipped = new Set(options.skipped);
   const pinned = new Set(options.pinned);
   const levels = options.levels;
@@ -480,6 +500,7 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
       logistics: logistics.filter((l) => l.start.slice(0, 10) === date),
       options,
       utcOffset,
+      timeZone,
       sponsors: ranked,
       boothsOpen: !openDays || openDays.has(date),
       usedSponsors,

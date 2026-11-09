@@ -109,7 +109,7 @@ A free slot (`pick: null`, any open stretch of 10 minutes or more between 9:00 a
   "logistics": [{ "title": "Lunch", "type": "meal", "start": "…", "end": "…", "room": "…" }],
                                 // kind "logistics" items overlapping the window (type: meal | break | social | expo | other);
                                 // titles lose leading emoji and ALL CAPS; all-day services (over 4 h) are left out
-  "suggestion": "Lunch is served 12:20–2:20 PM in Halls A-C."  // one line for the window; "Short break: …" under 15 min
+  "suggestion": "Lunch is served 12:20–2:20 PM MT in Halls A-C."  // one line for the window; times include the conference time zone
 }
 ```
 

@@ -62,11 +62,22 @@ test('free slot: sessions on during the window become ranked options, even below
   const [day] = run(sessions, candidates, { skipped: ['t:g'] });
   const [free] = freeSlots(day);
   assert.deepEqual([free.start, free.end], [at('12:00'), at('13:00')]);
-  assert.deepEqual(free.backups.map((b) => b.session.id), ['t:b', 't:c']); // no demo, no skipped, no stub
+  assert.deepEqual(free.backups.map((b) => b.session.id), ['t:b']); // no demo, skipped, stub or option that conflicts with a pick
   assert.deepEqual(free.backups[0].reasons, ['Fits this window', 'Matches helm']);
-  assert.deepEqual(free.backups[1].reasons, ['Starts in this window']);
-  assert.equal(free.backups[1].score, 0);
   assert.equal(free.pinned, false);
+});
+
+test('free slot: an option cannot replace a neighboring pick when added', () => {
+  const sessions = [
+    session('a', '09:00', '10:00'),
+    session('already-running', '09:30', '11:30'), // overlaps the previous pick
+    session('starts-in-window', '12:00', '13:30'), // overlaps the next pick
+    session('f', '13:00', '18:00'),
+  ];
+  const candidates = [rec(sessions[0], 0.9), rec(sessions[1], 0.1), rec(sessions[2], 0.1), rec(sessions[3], 0.9)];
+  const [day] = run(sessions, candidates);
+  assert.deepEqual(day.slots.filter((s) => s.pick).map((s) => s.pick.session.id), ['t:a', 't:f']);
+  assert.deepEqual(freeSlots(day)[0].backups, []);
 });
 
 test('free slot: sponsored demos are offered only when nothing else is on', () => {
@@ -92,7 +103,22 @@ test('free slot: meals and breaks in the window, all-day services left out, and 
   assert.deepEqual(free.logistics, [
     { title: 'Lunch', type: 'meal', start: at('12:20'), end: at('14:20'), room: 'Salt Palace | Level 1 | Halls A-C' },
   ]);
-  assert.equal(free.suggestion, 'Lunch is served 12:20–2:20 PM in Halls A-C.');
+  assert.equal(free.suggestion, 'Lunch is served 12:20–2:20 PM MT in Halls A-C.');
+});
+
+test('free slot suggestion includes the conference time zone for non-meal options too', () => {
+  const suggestion = plan.suggestionFor(120, {
+    logistics: [{
+      title: 'Happy Hour',
+      type: 'social',
+      start: '2026-11-10T17:00:00-05:00',
+      end: '2026-11-10T18:15:00-05:00',
+      room: 'Fontainebleau | Level 1 | Beach Room',
+    }],
+    booths: [],
+    backups: [],
+  }, 'America/New_York');
+  assert.equal(suggestion, 'Happy Hour: 5:00–6:15 PM ET in Beach Room.');
 });
 
 test('free slot: booths in long and 15-30 minute gaps on expo days, a walk for short ones', () => {
@@ -121,8 +147,38 @@ test('free slot: booths in long and 15-30 minute gaps on expo days, a walk for s
   assert.deepEqual(twelve.booths, []);
   assert.deepEqual(twelve.backups, []);
   assert.equal(twelve.suggestion, 'Short break: walk to your next room.');
-  // The day's booth list is unchanged: only the long gap's two, plus the loose ones.
-  assert.equal(day.booths.filter((b) => b.gap).length, 2);
+  // The day's booth list includes booth suggestions for long and short gaps.
+  assert.equal(day.booths.filter((b) => b.gap).length, 3);
+});
+
+test('short-gap booths use fresh sponsors across days and appear in the day booth list', () => {
+  const nextDay = '2026-11-11';
+  const on = (id, date, start, end, extra = {}) => session(id, start, end, {
+    ...extra,
+    start: `${date}T${start}:00-07:00`,
+    end: `${date}T${end}:00-07:00`,
+  });
+  const sessions = [
+    on('showcase-1', DAY, '08:00', '09:00', { track: 'Solutions Showcase' }),
+    on('a', DAY, '09:00', '10:00'),
+    on('b', DAY, '11:00', '18:00'),
+    on('showcase-2', nextDay, '08:00', '09:00', { track: 'Solutions Showcase' }),
+    on('c', nextDay, '09:00', '10:00'),
+    on('d', nextDay, '10:20', '18:00'),
+  ];
+  const sponsors = ['x', 'y', 'z', 'w', 'v', 'u', 't', 's', 'r']
+    .map((id, index) => sponsor(id, `Sponsor ${id}`, 0.6 - index * 0.01));
+  const candidates = [1, 2, 4, 5].map((i) => rec(sessions[i], 0.9));
+  const days = run(sessions, candidates, {}, sponsors);
+  const firstDay = days.find((day) => day.date === DAY);
+  const secondDay = days.find((day) => day.date === nextDay);
+  const [shortGap] = freeSlots(secondDay);
+  assert.deepEqual(shortGap.booths.map((b) => b.sponsor.name), ['Sponsor r']);
+  const dayBooth = secondDay.booths.find((b) => b.gap?.start === shortGap.start);
+  assert.equal(dayBooth.sponsor.name, 'Sponsor r');
+  assert.deepEqual(dayBooth.gap, { start: shortGap.start, end: shortGap.end });
+  const usedFirstDay = new Set(firstDay.booths.map((b) => b.sponsor.id));
+  assert.ok(secondDay.booths.every((b) => !usedFirstDay.has(b.sponsor.id)));
 });
 
 test('free slot: no booths and no sad dead end on a day without an expo', () => {
