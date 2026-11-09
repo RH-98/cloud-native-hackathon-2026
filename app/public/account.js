@@ -49,7 +49,7 @@ export function applySnapshot(s, saved) {
 
 // Only your own GitHub profile can be opted in to social matching.
 export function isOwnGithubProfile(profile, user) {
-  return Boolean(profile && user && profile.source === 'github' && typeof profile.username === 'string'
+  return Boolean(profile && user && (profile.source === 'github' || profile.source === 'github+interests') && typeof profile.username === 'string'
     && profile.username.toLowerCase() === String(user.login).toLowerCase());
 }
 

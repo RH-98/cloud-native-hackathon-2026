@@ -32,7 +32,9 @@ test('snapshot without the plan, and nothing to restore', () => {
 test('only your own GitHub profile counts as yours', () => {
   const user = { login: 'OctoCat' };
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'octocat' }, user), true);
+  assert.equal(isOwnGithubProfile({ source: 'github+interests', username: 'octocat' }, user), true);
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'torvalds' }, user), false);
+  assert.equal(isOwnGithubProfile({ source: 'github+interests', username: 'torvalds' }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'interests', username: null }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'octocat' }, null), false);
 });

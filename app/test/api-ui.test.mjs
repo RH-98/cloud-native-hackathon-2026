@@ -3,8 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIcs, escapeText, foldLine, planToText, toUtcStamp } from '../public/ics.js';
-import { formatTimeRange, dateRange, safeUrl } from '../public/format.js';
-import { applySwaps, planRequest, slotKey, swapSlot } from '../public/state.js';
+import { cityOf, formatDateSpan, formatTimeRange, dateRange, safeUrl } from '../public/format.js';
+import { applySwaps, planRequest, slotKey, swapSlot, warningMessages } from '../public/state.js';
 
 const session = (id, title, start, end, extra = {}) => ({
   id: `kubecon-na-2026:${id}`,
@@ -110,4 +110,21 @@ test('planRequest adds pins and skips without touching the base request', () => 
   const body = planRequest(base, new Set(['kubecon-na-2026:1']), new Set());
   assert.deepEqual(body.options, { firstTimer: true, pinned: ['kubecon-na-2026:1'] });
   assert.equal(base.options.pinned, undefined);
+});
+
+test('warningMessages explains known warnings and drops the rest', () => {
+  const [msg, ...rest] = warningMessages(['github_rate_limited', 'nope', 42, 'constructor']);
+  assert.match(msg, /rate limiting/);
+  assert.deepEqual(rest, []);
+  assert.deepEqual(warningMessages(undefined), []);
+});
+
+test('formatDateSpan and cityOf describe a conference card', () => {
+  assert.equal(formatDateSpan('2026-11-09', '2026-11-12'), 'Nov 9–12, 2026');
+  assert.equal(formatDateSpan('2026-11-30', '2026-12-02'), 'Nov 30 – Dec 2, 2026');
+  assert.equal(formatDateSpan('2026-12-30', '2027-01-02'), 'Dec 30, 2026 – Jan 2, 2027');
+  assert.equal(formatDateSpan('2026-11-09', '2026-11-09'), 'Nov 9, 2026');
+  assert.equal(cityOf('Salt Palace Convention Center, Salt Lake City, Utah'), 'Salt Lake City, Utah');
+  assert.equal(cityOf('Amsterdam, Netherlands'), 'Amsterdam, Netherlands');
+  assert.equal(cityOf(undefined), '');
 });

@@ -167,14 +167,17 @@ a:hover { text-decoration-thickness: 0.16em; }
   font-size: 1.25rem;
   letter-spacing: 0.02em;
 }
-.brand__mark { width: 2rem; height: 2rem; }
-.brand__mark path { fill: var(--c-sunset); }
-.brand__mark .brand__trail {
+/* The logo mark (same drawing as favicon.svg): a switchback trail up a peak. */
+.brand__mark { width: 2.25rem; height: 2.25rem; flex: none; }
+.brand__sun { fill: var(--c-aspen); }
+.brand__mountain { fill: var(--c-sunset); }
+.brand__snow { fill: var(--c-salt); }
+.brand__trail {
   fill: none;
-  stroke: var(--masthead-hl);
-  stroke-width: 2.2;
+  stroke: var(--c-night);
+  stroke-width: 2.4;
   stroke-linecap: round;
-  stroke-dasharray: 3 2.4;
+  stroke-linejoin: round;
 }
 
 .masthead__title {
@@ -281,7 +284,74 @@ legend, .field > label, .field--inline > label {
   margin-bottom: var(--space-2);
   font-weight: 700;
 }
-.legend-note { font-weight: 400; color: var(--text-muted); font-size: 0.875rem; }
+.legend-note, .label-note { font-weight: 400; color: var(--text-muted); font-size: 0.875rem; }
+
+/* "About you": GitHub username and interests, either or both. */
+.about {
+  display: grid;
+  gap: var(--space-4);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+.about > legend { padding: 0 var(--space-2); margin-bottom: 0; font-size: 1.05rem; }
+.about__hint { margin: 0; color: var(--text-muted); }
+
+/* Conference picker: real radios (arrow keys work), styled label cards.
+   The chosen card gets a check mark and a heavier border, not color alone. */
+.confs__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-2);
+}
+.conf { position: relative; }
+.conf__input { position: absolute; top: 0; left: 0; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.conf__card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-3);
+  height: 100%;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+}
+.conf__card:hover { border-color: var(--text-muted); }
+.conf__name { grid-column: 1; grid-row: 1; font-weight: 700; line-height: 1.25; }
+.conf__check {
+  grid-column: 2; grid-row: 1;
+  width: 1.5rem; height: 1.5rem;
+  border: 2px solid var(--text-muted);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.conf__meta {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.conf__input:checked + .conf__card {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.conf__input:checked + .conf__card .conf__check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.conf__input:checked + .conf__card .conf__check::after {
+  content: "";
+  width: 0.4rem; height: 0.75rem;
+  margin-top: -0.15rem;
+  border: solid var(--on-accent);
+  border-width: 0 3px 3px 0;
+  transform: rotate(45deg);
+}
+.conf__input:focus-visible + .conf__card { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .field { display: grid; gap: 0; }
 
@@ -319,31 +389,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { border-color
 .hint--count { text-align: right; }
 .field-error { margin: var(--space-2) 0 0; color: var(--text); background: var(--error-bg); border-left: 4px solid var(--error-border); padding: var(--space-2) var(--space-3); font-size: 0.9rem; }
 
-/* Segmented control: real radios, styled labels. */
-.segmented__options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border: 2px solid var(--border-strong);
-  border-radius: var(--radius-m);
-  overflow: hidden;
-}
-.segmented input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.segmented label {
-  padding: var(--space-3) var(--space-2);
-  text-align: center;
-  font-weight: 700;
-  cursor: pointer;
-  background: var(--surface);
-}
-.segmented label + input + label { border-left: 2px solid var(--border-strong); }
-.segmented input:checked + label {
-  background: var(--border-strong);
-  color: var(--surface);
-  text-decoration: underline;
-  text-decoration-thickness: 3px;
-  text-underline-offset: 0.3em;
-}
-.segmented input:focus-visible + label { outline: 3px solid var(--focus); outline-offset: -5px; }
 
 .options { border-top: 2px dashed var(--border); padding-top: var(--space-3); }
 .options summary { cursor: pointer; font-weight: 700; padding: var(--space-1) 0; }
@@ -407,6 +452,17 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
   padding: var(--space-4);
 }
 .alert p { margin: 0 0 var(--space-2); }
+
+/* A warning the plan survived (e.g. GitHub fell back to typed interests). */
+.notice {
+  margin: 0 0 var(--space-4);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 2px solid var(--border-strong);
+  border-left: 8px solid var(--pin);
+  border-radius: var(--radius-m);
+  padding: var(--space-3) var(--space-4);
+}
 .alert .btn { margin-top: var(--space-1); }
 
 .empty__body {

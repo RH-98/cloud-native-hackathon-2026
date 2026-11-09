@@ -5,8 +5,8 @@ import { initAccount, notifyPlanChanged } from './account.js';
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
 import { dateRange, formatDay } from './format.js';
-import { h, planMeta, renderConnections, renderPlan, renderProfile } from './render.js';
-import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot } from './state.js';
+import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
+import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
 
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DEFAULT_CONFERENCE = 'kubecon-na-2026';
@@ -16,11 +16,9 @@ const $ = (sel) => document.querySelector(sel);
 const el = {
   form: $('#plan-form'),
   github: $('#github'),
-  githubField: $('#github-field'),
   interests: $('#interests'),
-  interestsField: $('#interests-field'),
   interestsCount: $('#interests-count'),
-  conference: $('#conference'),
+  conferenceList: $('#conference-list'),
   daysList: $('#days-list'),
   firstTimer: $('#first-timer'),
   includeSponsored: $('#include-sponsored'),
@@ -49,16 +47,18 @@ function announce(message) {
   window.setTimeout(() => { el.status.textContent = message; }, 50);
 }
 
-function showError(err) {
+// body: the request that failed, to offer the interests field when only
+// GitHub was given (with both, the API already falls back on its own).
+function showError(err, body) {
   const code = err instanceof ApiError ? err.code : 'internal';
   const message = err?.message || 'Something went wrong.';
   el.error.replaceChildren(h('p', { class: 'alert__title' }, h('strong', {}, 'We could not build your route.'), ' ', message));
   if (code === 'rate_limited' || code === 'upstream' || code === 'not_found') {
-    if (source() === 'github') {
+    if (body?.github && !body?.interests) {
       const hint = code === 'not_found'
-        ? 'Check the spelling, or skip GitHub and type what you work on.'
+        ? 'Check the spelling, or type what you work on in the interests box.'
         : 'GitHub is busy. You can still get a plan from your interests.';
-      el.error.append(h('p', {}, hint), h('button', { type: 'button', class: 'btn btn--small', dataset: { action: 'use-interests' } }, 'Type my interests instead'));
+      el.error.append(h('p', {}, hint), h('button', { type: 'button', class: 'btn btn--small', dataset: { action: 'use-interests' } }, 'Type my interests'));
     }
   }
   el.error.hidden = false;
@@ -87,19 +87,12 @@ function setLoading(on, message) {
 
 // ---------- Form ----------
 
-function source() {
-  return el.form.elements.source.value;
-}
-
-function setSource(value, { focus = false } = {}) {
-  el.form.elements.source.value = value;
-  el.githubField.hidden = value !== 'github';
-  el.interestsField.hidden = value !== 'interests';
-  if (focus) (value === 'github' ? el.github : el.interests).focus();
-}
-
 function updateCount() {
   el.interestsCount.textContent = `${el.interests.value.length} of 500 characters`;
+}
+
+function selectedConference() {
+  return el.conferenceList.querySelector('input[name="conference"]:checked')?.value || DEFAULT_CONFERENCE;
 }
 
 function renderDays(conferenceId, checked) {
@@ -118,10 +111,9 @@ function readInputs() {
   const levels = [...el.form.querySelectorAll('input[name="levels"]:checked')].map((i) => i.value);
   const breakMinutes = Math.max(0, Math.min(120, Math.round(Number(f.breakMinutes.value) || 0)));
   return {
-    source: source(),
     github: el.github.value.trim().replace(/^@/, ''),
     interests: el.interests.value.trim(),
-    conferenceId: el.conference.value || DEFAULT_CONFERENCE,
+    conferenceId: selectedConference(),
     // Always send the checked days (when known), so pre-event days stay out.
     days: allDays ? days : null,
     levels,
@@ -134,9 +126,10 @@ function readInputs() {
 
 function restoreInputs(saved) {
   if (!saved) return;
-  if (typeof saved.github === 'string') el.github.value = saved.github;
-  if (typeof saved.interests === 'string') el.interests.value = saved.interests.slice(0, 500);
-  if (saved.source === 'interests' || saved.source === 'github') setSource(saved.source);
+  // Inputs saved before both fields could be used together carry a `source`:
+  // restore only the field that was in use then.
+  if (typeof saved.github === 'string' && saved.source !== 'interests') el.github.value = saved.github;
+  if (typeof saved.interests === 'string' && saved.source !== 'github') el.interests.value = saved.interests.slice(0, 500);
   for (const box of el.form.querySelectorAll('input[name="levels"]')) box.checked = (saved.levels || []).includes(box.value);
   el.firstTimer.checked = Boolean(saved.firstTimer);
   el.includeSponsored.checked = saved.includeSponsored !== false;
@@ -148,19 +141,18 @@ function restoreInputs(saved) {
 // Returns the API body, or null after showing a field error.
 function buildRequest(inputs) {
   const body = { conferenceId: inputs.conferenceId };
-  if (inputs.source === 'github') {
+  if (!inputs.github && !inputs.interests) {
+    showFieldError(el.github, 'Enter a GitHub username, some interests, or both.');
+    return null;
+  }
+  if (inputs.github) {
     if (!GITHUB_USER.test(inputs.github)) {
-      showFieldError(el.github, inputs.github ? 'That does not look like a GitHub username (letters, numbers and single hyphens).' : 'Enter a GitHub username.');
+      showFieldError(el.github, 'That does not look like a GitHub username (letters, numbers and single hyphens).');
       return null;
     }
     body.github = inputs.github;
-  } else {
-    if (!inputs.interests) {
-      showFieldError(el.interests, 'Type at least one interest, for example "argo cd, opentelemetry".');
-      return null;
-    }
-    body.interests = inputs.interests;
   }
+  if (inputs.interests) body.interests = inputs.interests;
   const options = {
     includeSponsored: inputs.includeSponsored,
     firstTimer: inputs.firstTimer,
@@ -223,18 +215,19 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
   clearError();
   setLoading(true, message);
   try {
-    const { profile, plan } = await requestPlan(planRequest(body, state.pinned, state.skipped));
+    const { profile, plan, warnings } = await requestPlan(planRequest(body, state.pinned, state.skipped));
     if (mine !== planRequestSeq) return false;
     state.request = body;
     state.profile = profile;
     state.plan = applySwaps(plan, state.swaps);
-    renderProfile(el.profile, profile);
+    const notes = warningMessages(warnings);
+    renderProfile(el.profile, profile, notes);
     el.profile.hidden = false;
     if (fresh) state.activeDay = null;
     setLoading(false);
     showPlan({ focusKey });
     const n = countPicks(state.plan);
-    announce(done || `Route ready: ${n} session${n === 1 ? '' : 's'} over ${state.plan.days.length} day${state.plan.days.length === 1 ? '' : 's'}.`);
+    announce([done || `Route ready: ${n} session${n === 1 ? '' : 's'} over ${state.plan.days.length} day${state.plan.days.length === 1 ? '' : 's'}.`, ...notes].join(' '));
     if (fresh) $('#profile-heading')?.scrollIntoView({ block: 'start' });
     loadPeople();
     notifyPlanChanged();
@@ -242,7 +235,7 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
   } catch (err) {
     if (mine !== planRequestSeq) return false;
     setLoading(false);
-    showError(err);
+    showError(err, body);
     if (el.plan.hidden && el.profile.hidden) el.empty.hidden = false;
     announce('');
     return false;
@@ -385,8 +378,7 @@ async function init() {
   restoreInputs(saved);
 
   el.form.addEventListener('change', (e) => {
-    if (e.target.name === 'source') setSource(e.target.value, { focus: true });
-    if (e.target === el.conference) renderDays(el.conference.value);
+    if (e.target.name === 'conference') renderDays(e.target.value);
   });
   el.interests.addEventListener('input', updateCount);
   el.form.addEventListener('submit', async (e) => {
@@ -400,7 +392,7 @@ async function init() {
     state.pinned.clear();
     state.skipped.clear();
     state.swaps.clear();
-    const who = body.github ? `@${body.github}'s public repos` : 'your interests';
+    const who = body.github ? `@${body.github}'s public repos${body.interests ? ' and your interests' : ''}` : 'your interests';
     await loadPlan(body, { message: `Reading ${who} and scouting sessions…`, fresh: true });
   });
 
@@ -414,7 +406,7 @@ async function init() {
     else if (action === 'tab') onTab(day);
     else if (action === 'use-interests') {
       clearError();
-      setSource('interests', { focus: true });
+      el.interests.focus();
     }
   });
   el.planDays.addEventListener('keydown', onTabKey);
@@ -434,25 +426,26 @@ async function init() {
     state.conferences = [];
   }
   if (state.conferences.length) {
-    el.conference.replaceChildren(...state.conferences.map((c) => h('option', { value: c.id }, c.name)));
-    const want = saved?.conferenceId && state.conferences.some((c) => c.id === saved.conferenceId) ? saved.conferenceId : DEFAULT_CONFERENCE;
-    if (state.conferences.some((c) => c.id === want)) el.conference.value = want;
+    const has = (id) => state.conferences.some((c) => c.id === id);
+    const want = [saved?.conferenceId, selectedConference(), DEFAULT_CONFERENCE].find(has) || state.conferences[0].id;
+    renderConferenceCards(el.conferenceList, state.conferences, want);
   }
-  renderDays(el.conference.value, saved?.conferenceId === el.conference.value ? saved?.days : null);
-  initAccount({ conferenceId: () => el.conference.value, restore: restoreSaved, notify: announce });
+  const conferenceId = selectedConference();
+  renderDays(conferenceId, saved?.conferenceId === conferenceId ? saved?.days : null);
+  initAccount({ conferenceId: selectedConference, restore: restoreSaved, notify: announce });
 }
 
 // Shows a plan restored from the user's account (account.js has already put
 // it into `state`). Without a stored plan, re-requests it.
 function restoreSaved() {
   const req = state.request;
-  if (req.github) {
-    el.github.value = req.github;
-    setSource('github');
-  } else if (req.interests) {
-    el.interests.value = req.interests;
-    setSource('interests');
-    updateCount();
+  el.github.value = typeof req.github === 'string' ? req.github : '';
+  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, 500) : '';
+  updateCount();
+  const card = [...el.conferenceList.querySelectorAll('input[name="conference"]')].find((i) => i.value === req.conferenceId);
+  if (card && !card.checked) {
+    card.checked = true;
+    renderDays(req.conferenceId, req.options?.days || null);
   }
   if (!state.plan) {
     loadPlan(req, { message: 'Loading your saved plan…', done: 'Your saved plan is back.', fresh: true });

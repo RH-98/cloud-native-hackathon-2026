@@ -91,7 +91,7 @@ function deriveSocialProfile(profile) {
 
 // You can only opt yourself in: the profile must be built from your own GitHub login.
 function isOwnProfile(profile, user) {
-  return Boolean(profile && typeof profile === 'object' && profile.source === 'github'
+  return Boolean(profile && typeof profile === 'object' && (profile.source === 'github' || profile.source === 'github+interests')
     && typeof profile.username === 'string' && user
     && profile.username.toLowerCase() === user.login.toLowerCase());
 }

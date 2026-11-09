@@ -301,6 +301,10 @@ test('you can only opt in your own GitHub profile, and only derived signals are 
   assert.deepEqual(stored, { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 0.9 }], languages: [{ name: 'Go', weight: 0.6 }], topics: ['gitops'], keywords: ['helm'] });
   assert.ok(!JSON.stringify(stored).includes('private-thing'));
 
+  // GitHub plus typed interests is still your own profile; someone else's is not.
+  assert.equal((await put({ optIn: true, profile: { source: 'github+interests', username: 'octocat', tools: [] } })).status, 200);
+  assert.equal((await put({ optIn: true, profile: { source: 'github+interests', username: 'torvalds', tools: [] } })).status, 403);
+
   const out = await put({ optIn: false });
   assert.equal(out.status, 200);
   assert.equal(app.db.social.size, 0);

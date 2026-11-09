@@ -25,7 +25,8 @@ function loadConferences(dir = DATA_DIR) {
       sessionCount: (snapshot.sessions || []).filter((s) => s.kind === 'session').length,
     });
   }
-  return conferences;
+  // Soonest first, so the next conference leads the list.
+  return conferences.sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)) || a.id.localeCompare(b.id));
 }
 
 function listConferences() {
