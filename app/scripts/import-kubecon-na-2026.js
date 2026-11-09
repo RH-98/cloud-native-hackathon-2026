@@ -3,10 +3,8 @@
 // Writes data/conferences/kubecon-na-2026.json in the common conference format.
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const { parseSchedule, parseSponsors } = require('../importers/lf-events');
-
-const tracer = trace.getTracer('conference-importer');
+const { fetchText } = require('../importers/fetch');
 
 const BASE = 'https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america';
 const conference = {
@@ -18,26 +16,6 @@ const conference = {
   startDate: '2026-11-09',
   endDate: '2026-11-12',
 };
-
-async function fetchText(url, spanName) {
-  return tracer.startActiveSpan(spanName, { attributes: { 'url.full': url } }, async (span) => {
-    try {
-      const res = await fetch(url, {
-        headers: { 'user-agent': 'conference-planner-importer (Cloud Native Hackathon 2026)' },
-        signal: AbortSignal.timeout(30_000),
-      });
-      span.setAttribute('http.response.status_code', res.status);
-      if (!res.ok) throw new Error(`GET ${url} failed: HTTP ${res.status}`);
-      return await res.text();
-    } catch (err) {
-      span.recordException(err);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-      throw err;
-    } finally {
-      span.end();
-    }
-  });
-}
 
 async function main() {
   const scheduleUrl = `${BASE}/program/schedule/`;

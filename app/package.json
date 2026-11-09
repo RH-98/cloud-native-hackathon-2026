@@ -11,7 +11,8 @@
     "import:convergence": "node scripts/import-convergence-2026.js",
     "load:es": "node scripts/load-elasticsearch.js",
     "load:attendees": "node scripts/load-attendees.js",
-    "generate:attendees": "node scripts/generate-fake-attendees.js"
+    "generate:attendees": "node scripts/generate-fake-attendees.js",
+    "watch:schedule": "node scripts/watch-schedule.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.5.1",
