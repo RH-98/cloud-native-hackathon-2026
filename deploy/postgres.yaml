@@ -9,6 +9,11 @@ metadata:
   name: db
 spec:
   instances: 1
+  # One instance means no replicas, so the default read-only Service (db-ro)
+  # would select no pods (Radar Checks: serviceNoMatchingPods). Don't create it.
+  managed:
+    services:
+      disabledDefaultServices: ["ro"]
   storage:
     size: 1Gi
   resources:
