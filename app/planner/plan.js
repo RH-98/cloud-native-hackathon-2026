@@ -3,6 +3,8 @@
 // are parsed only to compare them, never converted or re-formatted.
 
 const MIN_SCORE = 0.2; // below this a session isn't worth suggesting: the time stays free
+// A pick must score at least this share of the day's best match.
+const RELATIVE_FLOOR = 0.5;
 const MIN_GAP_MINUTES = 30; // free time this long gets booth suggestions
 const DAY_START = '09:00:00';
 const DAY_END = '18:00:00';
@@ -110,10 +112,13 @@ function conflicts(a, b, gapMs = 0) {
   return ms(a.start) < ms(b.end) + gapMs && ms(b.start) < ms(a.end) + gapMs;
 }
 
-// Short talks count a little less than full ones, so a day isn't traded for a
-// string of 5-minute lightning talks just because there are more of them.
+// What a pick is worth to the schedule. Squaring the score makes one strong
+// match worth more than several weak ones (0.8 beats 0.4 + 0.4), short talks
+// count a little less than full ones, and every pick pays a small cost for
+// walking between rooms, so a day isn't traded for a string of lightning talks.
+const PICK_COST = 0.03;
 function weight(rec) {
-  return rec.score * Math.min(1, 0.5 + minutes(rec.session) / 60);
+  return rec.score * rec.score * Math.min(1, 0.5 + minutes(rec.session) / 60) - PICK_COST;
 }
 
 // Weighted interval scheduling: the non-conflicting subset with the most weight.
@@ -201,7 +206,12 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
   const gapMs = options.breakMinutes * MINUTE;
   const pinnedIds = new Set(pinnedRecs.map((r) => r.session.id));
   const good = recs.filter((r) => r.score >= MIN_SCORE && !pinnedIds.has(r.session.id));
-  const open = good.filter((r) => !pinnedRecs.some((p) => conflicts(r.session, p.session, gapMs)));
+  // Picks must also be within reach of the day's best match; weaker sessions
+  // can still be backups. Keynotes keep their floor.
+  const floor = Math.max(MIN_SCORE, RELATIVE_FLOOR * Math.max(0, ...good.map((r) => r.score)));
+  const open = good.filter(
+    (r) => (r.score >= floor || isKeynote(r.session)) && !pinnedRecs.some((p) => conflicts(r.session, p.session, gapMs)),
+  );
   const chosen = bestSchedule(open, gapMs);
   const picks = [
     ...pinnedRecs.map((rec) => ({ rec, pinned: true })),
