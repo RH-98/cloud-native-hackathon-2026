@@ -43,6 +43,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces and metrics; logs explicitly emitted through the OpenTelemetry Logs API are exported (plain `console.log` is not instrumented) |
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans (`telemetry.js` also turns them off) |
 | `OTEL_NODE_RESOURCE_DETECTORS` | `env,host,os,process,serviceinstance` | Skip the cloud metadata detectors (GCP, AWS, Azure): the nodes are shared host nodes. `telemetry.js` uses the same list when this is unset |
+| `OTEL_LOG_LEVEL` | Unset | Optional. Set to `debug`, `info`, `warn` or `error` to print the OpenTelemetry SDK's own diagnostics (`telemetry.js` reads it) |
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 
 To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`. To see spans locally, run `OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none node --require ./telemetry.js server.js` in `app/`. With no `OTEL_EXPORTER_OTLP_*ENDPOINT` and no `OTEL_*_EXPORTER` set, `telemetry.js` leaves OpenTelemetry off, so local runs don't retry `localhost:4318`.
