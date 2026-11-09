@@ -1,0 +1,31 @@
+# Simulated schedule changes for demos, read by the schedule-watch CronJob
+# (mounted at /etc/schedule-overrides/overrides.json). The watcher applies
+# them on top of the live schedule and records the changes with
+# source "simulated". Keep it an empty array when not demoing.
+#
+# Example: move "You Don't Have to Choose: Argo and Flux Are Friends!"
+# (Tue 14:50, 255 BC) to 16:20 in another room, and cancel "From Bytes to
+# Traces: A Deep Dive into OpenTelemetry eBPF Instrumentation Internals"
+# (Tue 14:50). Both sit in the same Tuesday 14:50 slot, so either shows the
+# backup swap.
+#
+#   overrides.json: |
+#     [
+#       { "sessionId": "kubecon-na-2026:1223002",
+#         "start": "2026-11-10T16:20:00-07:00", "end": "2026-11-10T16:50:00-07:00",
+#         "room": "Salt Palace | Level 1 | Grand Ballroom BDF" },
+#       { "sessionId": "kubecon-na-2026:1247277", "cancelled": true }
+#     ]
+#
+# Push the change, let Argo CD sync, then run the CronJob now (Radar
+# manage_cronjob "trigger", or kubectl create job --from=cronjob/schedule-watch).
+# Set it back to [] afterwards: the next run records the sessions moving back.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schedule-overrides
+  labels:
+    app: schedule-watch
+data:
+  overrides.json: |
+    []

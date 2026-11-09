@@ -4,6 +4,7 @@
 import { initAccount, notifyPlanChanged } from './account.js';
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
+import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
 import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
@@ -38,6 +39,14 @@ const el = {
   copyText: $('#copy-text'),
   resetChoices: $('#reset-choices'),
 };
+
+// Live schedule changes for the plan on screen (changes.js).
+const changeWatch = createChangeWatch({
+  container: $('#changes'),
+  announce,
+  swap: onSwap,
+  replan: (opts) => loadPlan(state.request, opts),
+});
 
 // ---------- Announcements and errors ----------
 
@@ -202,6 +211,7 @@ function showPlan({ focusKey } = {}) {
   el.planMeta.textContent = planMeta(state.plan);
   state.activeDay = renderPlan(el.planDays, state.plan, state.activeDay);
   el.resetChoices.hidden = !(state.pinned.size || state.skipped.size || state.swaps.size);
+  changeWatch.planShown();
   // A function picks the key from the new plan (the slot to focus may have moved).
   if (typeof focusKey === 'function') focusKey = focusKey(state.plan);
   if (focusKey) {
@@ -229,6 +239,7 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
     setLoading(false);
     showPlan({ focusKey });
     const n = countPicks(state.plan);
+    if (typeof done === 'function') done = done(state.plan);
     announce([done || `Route ready: ${n} session${n === 1 ? '' : 's'} over ${state.plan.days.length} day${state.plan.days.length === 1 ? '' : 's'}.`, ...notes].join(' '));
     if (fresh) $('#profile-heading')?.scrollIntoView({ block: 'start' });
     loadPeople();
@@ -328,11 +339,18 @@ function onAdd(date, sessionId) {
   const rec = day?.slots.flatMap((s) => (s.pick ? [] : s.backups || [])).find((b) => b?.session?.id === sessionId);
   if (!rec) return;
   const { title } = rec.session;
+  // Pinning it can push out a pick it overlaps: say which, so nothing vanishes silently.
+  const before = day.slots.filter((s) => s.pick?.session).map((s) => s.pick.session);
   state.pinned.add(sessionId);
   state.skipped.delete(sessionId);
   loadPlan(state.request, {
     message: `Adding ${title} to your route…`,
-    done: `Added ${title} to your route and pinned it.`,
+    done: (plan) => {
+      const after = new Set((plan?.days.find((d) => d.date === date)?.slots || []).map((s) => s.pick?.session?.id).filter(Boolean));
+      const dropped = before.filter((s) => !after.has(s.id)).map((s) => s.title);
+      const note = dropped.length ? ` It overlaps, so this left your route: ${dropped.join('; ')}.` : '';
+      return `Added ${title} to your route and pinned it.${note}`;
+    },
     focusKey: (plan) => {
       const slots = plan?.days.find((d) => d.date === date)?.slots || [];
       const i = slots.findIndex((s) => s.pick?.session?.id === sessionId);

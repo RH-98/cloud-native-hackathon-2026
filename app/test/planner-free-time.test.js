@@ -117,7 +117,7 @@ test('free slot suggestion includes the conference time zone for non-meal option
     }],
     booths: [],
     backups: [],
-  }, 'America/New_York');
+  }, 'ET');
   assert.equal(suggestion, 'Happy Hour: 5:00–6:15 PM ET in Beach Room.');
 });
 
@@ -149,6 +149,11 @@ test('free slot: booths in long and 15-30 minute gaps on expo days, a walk for s
   assert.equal(twelve.suggestion, 'Short break: walk to your next room.');
   // The day's booth list includes booth suggestions for long and short gaps.
   assert.equal(day.booths.filter((b) => b.gap).length, 3);
+  assert.deepEqual(day.booths.filter((b) => b.gap).map((b) => [b.sponsor.name, b.gap.start]), [
+    ['Akuity', at('12:00')],
+    ['Dash0', at('12:00')],
+    [twenty.booths[0].sponsor.name, at('10:00')],
+  ]);
 });
 
 test('short-gap booths use fresh sponsors across days and appear in the day booth list', () => {

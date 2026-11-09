@@ -6,17 +6,20 @@ const { createPlanHandler } = require('./plan');
 const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
 const { createAuthHandler } = require('./auth');
+const { createChangesHandler } = require('./changes');
+const schedule = require('../schedule');
 const { createMeHandler } = require('./me');
 const { createAccounts, sessionToken } = require('../auth');
 
 // connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
-function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts() } = {}) {
+function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts(), getChanges = schedule.getChanges } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
   const handleConnections = createConnectionsHandler(connections);
   const handleAuth = createAuthHandler(accounts);
   const handleMe = createMeHandler(accounts);
   const handleStatic = createStaticHandler(publicDir);
+  const handleChanges = createChangesHandler({ getChanges, hasConference });
 
   return function handler(req, res) {
     let url;
@@ -45,6 +48,10 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections, accoun
       return Promise.resolve(handleAuth(req, res, url)).catch(() => {
         if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
       });
+    }
+    if (p === '/api/changes') {
+      if (req.method !== 'GET') return sendError(res, 'method_not_allowed', 'Use GET', { allow: 'GET' });
+      return handleChanges(req, res, url);
     }
     if (p === '/api/me' || p.startsWith('/api/me/')) return handleMe(req, res, url);
     if (p === '/api/connections') {
