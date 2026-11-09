@@ -4,9 +4,6 @@
 // without this a re-plan would still use the old times.
 const es = require('../search/elasticsearch');
 
-const CACHE_MS = 30_000;
-const cache = new Map(); // conferenceId -> { at, changes }
-
 // The most recent change per session (changes in any order).
 function latestBySession(changes) {
   const latest = new Map();
@@ -38,22 +35,19 @@ function overlaySnapshot(snapshot, changes) {
   return touched ? { ...snapshot, sessions } : snapshot;
 }
 
-// The snapshot with live changes applied. Never fails: on any Elasticsearch
+// The snapshot with live changes applied. Read fresh on every plan (one small
+// query): a cache could make a "Re-plan around it" use the old times right
+// after the watcher recorded a change. Never fails: on any Elasticsearch
 // error it returns the snapshot unchanged (the es.search_changes span records it).
-async function liveSnapshot(snapshot, client, { now = Date.now() } = {}) {
+async function liveSnapshot(snapshot, client) {
   const conferenceId = snapshot && snapshot.conference && snapshot.conference.id;
   if (!client || !conferenceId) return snapshot;
-  let entry = cache.get(conferenceId);
-  if (!entry || now - entry.at > CACHE_MS) {
-    try {
-      const { changes } = await es.searchChanges(client, { conferenceId, size: 1000 });
-      entry = { at: now, changes };
-    } catch {
-      entry = { at: now, changes: entry ? entry.changes : [] };
-    }
-    cache.set(conferenceId, entry);
+  try {
+    const { changes } = await es.searchChanges(client, { conferenceId, size: 1000 });
+    return overlaySnapshot(snapshot, changes);
+  } catch {
+    return snapshot;
   }
-  return overlaySnapshot(snapshot, entry.changes);
 }
 
-module.exports = { latestBySession, overlaySnapshot, liveSnapshot, _cache: cache };
+module.exports = { latestBySession, overlaySnapshot, liveSnapshot };
