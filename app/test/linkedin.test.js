@@ -140,6 +140,7 @@ test('blending with a GitHub profile keeps repo evidence and adds LinkedIn signa
   const merged = mergeInterests(github, pasted);
   assert.equal(merged.source, 'github+interests');
   assert.equal(merged.pastedFrom, 'linkedin');
+  assert.deepEqual(merged.pastedTopics, pasted.topics);
   assert.equal(merged.username, 'octo-dev');
   const byName = Object.fromEntries(merged.tools.map((t) => [t.name, t]));
   assert.deepEqual(byName.kubernetes.evidence, ['octo-dev/infra']);
@@ -148,11 +149,13 @@ test('blending with a GitHub profile keeps repo evidence and adds LinkedIn signa
   assert.equal(byName.go === undefined, true);
   assert.equal(merged.languages.find((l) => l.name === 'Go').weight, 0.9);
   assert.ok(merged.topics.includes('platform engineering') && merged.topics.includes('gitops'));
+  assert.deepEqual(merged.pastedTopics, pasted.topics);
   assert.ok(merged.keywords.includes('monorepo') && merged.keywords.includes('aws'));
   // Typed interests still blend exactly as before.
   const typed = mergeInterests(github, await buildProfile({ interests: 'crossplane' }, { now: NOW }));
   assert.equal(typed.tools.find((t) => t.name === 'crossplane').weight, 0.9);
   assert.equal(typed.pastedFrom, undefined);
+  assert.deepEqual(typed.pastedTopics, []);
 });
 
 test('the pasted text never reaches logs or span attributes', async () => {
