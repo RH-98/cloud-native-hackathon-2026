@@ -3,7 +3,32 @@
 // search (to explain and blend its hits) and the offline snapshot search.
 
 // Terms that match almost every KubeCon session: they still count, but little.
-const GENERIC = new Set(['kubernetes', 'k8s', 'cloud native', 'containers', 'container', 'devops', 'cncf', 'docker compose']);
+// AI belongs here in 2026: a third of the schedule mentions it.
+const GENERIC = new Set([
+  'kubernetes', 'k8s', 'cloud native', 'containers', 'container', 'devops', 'cncf', 'docker compose',
+  'ai', 'llm', 'llms', 'ai agents', 'agentic', 'genai', 'gen ai', 'generative ai', 'ml', 'machine learning',
+]);
+const GENERIC_FACTOR = 0.15;
+
+// Topics and keywords too vague to say anything about a talk: dropped.
+const KEYWORD_STOPLIST = new Set([
+  'agent', 'agents', 'server', 'servers', 'data', 'cloud', 'api', 'apis', 'app', 'apps', 'application',
+  'applications', 'tool', 'tools', 'tooling', 'service', 'services', 'platform', 'code', 'web', 'cli', 'library',
+  'framework', 'open source', 'opensource', 'demo', 'example', 'examples', 'test', 'testing', 'project', 'projects',
+  'system', 'systems', 'software', 'infrastructure', 'automation', 'config', 'configuration', 'deployment',
+  'management', 'scale', 'production', 'developer', 'developers', 'engineering', 'workflow', 'workflows',
+  'model', 'models', 'go',
+]);
+
+// How many of the strongest specific tools count as "top" tools.
+const TOP_TOOLS = 3;
+// Where a match is found: the title says what a talk is about, the description only mentions.
+const PLACE_WEIGHT = { title: 4, tags: 2, description: 1 };
+// ES hits: how much the term match and the fused rank count in the score.
+const BLEND = { lexical: 0.7, rank: 0.3 };
+// Sponsored sessions (demo theaters, booth demos) count half, unless one of
+// the person's top tools is in the title.
+const SPONSORED_FACTOR = 0.5;
 
 // Languages whose names are ordinary words or too short to match safely.
 const LANGUAGE_STOPLIST = new Set(['go', 'c', 'shell', 'makefile', 'dockerfile', 'html', 'css', 'hcl', 'jsonnet', 'smarty']);
@@ -50,8 +75,9 @@ function profileTerms(profile = {}) {
   const add = (raw, label, weight, kind) => {
     const key = normalize(raw);
     if (!key || key.length < 2) return;
+    if ((kind === 'topic' || kind === 'keyword') && KEYWORD_STOPLIST.has(key)) return;
     let w = (Number.isFinite(weight) ? weight : 1) * KIND_WEIGHT[kind];
-    if (GENERIC.has(key)) w *= 0.15;
+    if (GENERIC.has(key)) w *= GENERIC_FACTOR;
     const existing = byKey.get(key);
     if (existing && existing.weight >= w) return;
     byKey.set(key, {
@@ -72,12 +98,23 @@ function profileTerms(profile = {}) {
   for (const lang of profile.languages || []) {
     if (!LANGUAGE_STOPLIST.has(normalize(lang.name))) add(lang.name, lang.name, lang.weight, 'language');
   }
-  return [...byKey.values()].sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key)).slice(0, 30);
+  const sorted = [...byKey.values()].sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key)).slice(0, 30);
+  sorted
+    .filter((t) => t.kind === 'tool' && !t.generic)
+    .slice(0, TOP_TOOLS)
+    .forEach((t) => {
+      t.topTool = true;
+    });
+  return sorted;
 }
 
 // A natural-language description of the profile, for the semantic query.
+// Generic tools (AI, Kubernetes) are left out unless nothing else is known:
+// otherwise they pull the embedding toward every AI talk on the schedule.
 function semanticQueryText(profile = {}, terms = profileTerms(profile)) {
-  const tools = terms.filter((t) => t.kind === 'tool').slice(0, 8).map((t) => t.label);
+  const allTools = terms.filter((t) => t.kind === 'tool');
+  const specificTools = allTools.filter((t) => !t.generic);
+  const tools = (specificTools.length ? specificTools : allTools).slice(0, 8).map((t) => t.label);
   const themes = terms.filter((t) => t.kind === 'topic' || t.kind === 'keyword').slice(0, 8).map((t) => t.label);
   const langs = (profile.languages || []).slice(0, 3).map((l) => l.name).filter(Boolean);
   const parts = [];
@@ -103,17 +140,28 @@ function sessionMatches(session, terms) {
     const inTags = term.re.test(tags);
     const inDesc = term.re.test(desc);
     if (inTitle || inTags || inDesc) {
-      const raw = term.weight * ((inTitle ? 3 : 0) + (inTags ? 2 : 0) + (inDesc ? 1 : 0));
-      matches.push({ term, raw });
+      const places =
+        (inTitle ? PLACE_WEIGHT.title : 0) + (inTags ? PLACE_WEIGHT.tags : 0) + (inDesc ? PLACE_WEIGHT.description : 0);
+      matches.push({ term, raw: term.weight * places, inTitle });
     }
   }
   return matches.sort((a, b) => b.raw - a.raw);
 }
 
-// 0..1, saturating: one strong title match ~0.5, several matches approach 1.
+// 0..1, saturating: one strong tool in the title ~0.6, a mention in the
+// description ~0.2, several matches approach 1.
 function lexicalScore(matches) {
   const raw = matches.reduce((sum, m) => sum + m.raw, 0);
   return 1 - Math.exp(-raw / 4);
+}
+
+// The session's final 0..1 score, the same for every backend. `rank` (0..1,
+// Elasticsearch only) is the fused RRF rank; the snapshot has none.
+function sessionScore(session, matches, rank = null) {
+  const lexical = lexicalScore(matches);
+  let score = rank == null ? lexical : BLEND.lexical * lexical + BLEND.rank * rank;
+  if (session.sponsored && !matches.some((m) => m.term.topTool && m.inTitle)) score *= SPONSORED_FACTOR;
+  return Math.round(score * 1000) / 1000;
 }
 
 function sessionReasons(session, matches, { semantic = false } = {}) {
@@ -229,6 +277,7 @@ module.exports = {
   semanticQueryText,
   sessionMatches,
   lexicalScore,
+  sessionScore,
   sessionReasons,
   TOOL_VENDORS,
   tierRank,

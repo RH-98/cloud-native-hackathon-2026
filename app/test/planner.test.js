@@ -60,14 +60,29 @@ function run(sessions, candidates, options = {}, sponsors = []) {
 
 const picks = (day) => day.slots.filter((s) => s.pick).map((s) => s.pick.session.id);
 
-test('bestSchedule maximizes total score over non-overlapping sessions', () => {
-  const a = rec(session('a', '09:00', '10:00'), 0.5);
-  const b = rec(session('b', '09:30', '10:30'), 0.9);
-  const c = rec(session('c', '10:00', '11:00'), 0.5);
+test('bestSchedule: two good talks beat one, but one strong talk beats two weak ones', () => {
+  const a = rec(session('a', '09:00', '10:00'), 0.7);
+  const b = rec(session('b', '09:30', '10:30'), 0.8);
+  const c = rec(session('c', '10:00', '11:00'), 0.7);
   assert.deepEqual(plan.bestSchedule([b, c, a]).map((r) => r.session.id), ['t:a', 't:c']);
-  const weakA = { ...a, score: 0.4 };
-  const weakC = { ...c, score: 0.4 };
-  assert.deepEqual(plan.bestSchedule([weakA, b, weakC]).map((r) => r.session.id), ['t:b']);
+  const weakA = { ...a, score: 0.5 };
+  const weakC = { ...c, score: 0.5 };
+  const strongB = { ...b, score: 0.9 };
+  assert.deepEqual(plan.bestSchedule([weakA, strongB, weakC]).map((r) => r.session.id), ['t:b']);
+});
+
+test('bestSchedule: a strong 30-minute talk beats a string of short weak ones in its slot', () => {
+  const strong = rec(session('strong', '14:50', '15:20'), 0.8);
+  const shorts = ['14:50', '15:00', '15:10'].map((t, i) =>
+    rec(session(`short${i}`, t, `${t.slice(0, 3)}${String(Number(t.slice(3)) + 8).padStart(2, '0')}`), 0.45),
+  );
+  assert.deepEqual(plan.bestSchedule([...shorts, strong]).map((r) => r.session.id), ['t:strong']);
+});
+
+test('planDays: picks must reach half of the day\'s best score; weaker matches leave the time free', () => {
+  const sessions = [session('best', '09:00', '10:00'), session('meh', '11:00', '12:00'), session('alt', '11:15', '11:45')];
+  const [day] = run(sessions, [rec(sessions[0], 0.9), rec(sessions[1], 0.4), rec(sessions[2], 0.3)]);
+  assert.deepEqual(picks(day), ['t:best']);
 });
 
 test('bestSchedule honors a minimum gap between picks', () => {
@@ -275,8 +290,8 @@ test('planDays: keynotes fill otherwise free time with reason "Keynote", but nev
     session('m', '09:35', '10:30'),
     session('x', '11:00', '12:00'),
   ];
-  // k1 isn't a search result at all; k2 scored 0; m is a real match overlapping k2 and k3.
-  const candidates = [rec(sessions[1], 0), rec(sessions[3], 0.21), rec(sessions[4], 0.05)];
+  // k1 isn't a search result at all; k2 scored 0; m is a strong real match overlapping k2 and k3.
+  const candidates = [rec(sessions[1], 0), rec(sessions[3], 0.5), rec(sessions[4], 0.05)];
   const [day] = run(sessions, candidates);
   assert.deepEqual(picks(day), ['t:k1', 't:m']);
   const k1 = day.slots.find((s) => s.pick && s.pick.session.id === 't:k1').pick;
@@ -292,4 +307,12 @@ test('planDays: keynotes fill otherwise free time with reason "Keynote", but nev
   const [own] = run(sessions.slice(0, 1), [rec(sessions[0], 0.7, ['Matches Argo CD'])]);
   assert.equal(own.slots[0].pick.score, 0.7);
   assert.deepEqual(own.slots[0].pick.reasons, ['Matches Argo CD']);
+});
+
+test('planDays: lifts a keynote over the relative floor when only a weak real match overlaps', () => {
+  const keynote = session('k', '09:00', '10:00', { track: 'Keynote Sessions' });
+  const weak = session('weak', '09:15', '09:45');
+  const best = session('best', '11:00', '12:00');
+  const [day] = run([keynote, weak, best], [rec(weak, 0.3), rec(best, 0.9)]);
+  assert.deepEqual(picks(day), ['t:k', 't:best']);
 });
