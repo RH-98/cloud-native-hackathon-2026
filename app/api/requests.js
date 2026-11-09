@@ -119,14 +119,15 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
       const p = ctx.profiles.get(String(other.id));
       if (p) shared = sharedLabels(ctx.viewerProfile, { handle: other.login, fictional: false, interests: p.profile || {} });
     }
+    // A decline stays "pending" for the sender, timestamp included.
+    const hideDecline = outgoing && r.status === 'declined';
     return {
       id: r.id,
       conferenceId: r.conferenceId,
       direction: outgoing ? 'outgoing' : 'incoming',
-      // A decline stays "pending" for the sender.
-      status: outgoing && r.status === 'declined' ? 'pending' : r.status,
+      status: hideDecline ? 'pending' : r.status,
       createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
+      updatedAt: hideDecline ? r.createdAt : r.updatedAt,
       person,
       shared,
       ...(simulated ? { simulated: true, note: DEMO_NOTE } : {}),

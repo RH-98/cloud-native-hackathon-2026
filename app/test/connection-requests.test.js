@@ -73,6 +73,7 @@ function fakeDb() {
       const r = requests.get(String(id));
       if (!r || r.toUserId !== String(toUserId) || r.status === 'accepted') return null;
       r.status = status;
+      if (status !== 'declined') r.updatedAt = new Date(Date.now() + 1000).toISOString();
       return withUsers(r);
     },
     async withdrawConnectionRequest(id, fromUserId) {
@@ -170,6 +171,7 @@ test('decline is not revealed to the sender; withdraw removes the request', asyn
   const adaList = await listFor(ada);
   assert.equal(adaList.outgoing.length, 1);
   assert.equal(adaList.outgoing[0].status, 'pending');
+  assert.equal(adaList.outgoing[0].updatedAt, adaList.outgoing[0].createdAt);
 
   assert.equal((await bob.call(`/api/me/connections/${request.id}`, { method: 'DELETE' })).status, 404); // not the sender
   assert.equal((await ada.call(`/api/me/connections/${request.id}`, { method: 'DELETE' })).status, 200);
