@@ -1,7 +1,7 @@
 // The browser account module's pure helpers: what gets saved and restored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySnapshot, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
+import { applySnapshot, canOptInProfile, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
 
 const sample = () => ({
   request: { conferenceId: 'kubecon-na-2026', github: 'octocat', options: {} },
@@ -37,6 +37,16 @@ test('only your own GitHub profile counts as yours', () => {
   assert.equal(isOwnGithubProfile({ source: 'github+interests', username: 'torvalds' }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'interests', username: null }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'octocat' }, null), false);
+});
+
+test('opt-in is offered for your own GitHub profile or an interests / LinkedIn-pasted one', () => {
+  const user = { login: 'OctoCat' };
+  assert.equal(canOptInProfile({ source: 'github+interests', username: 'octocat', pastedFrom: 'linkedin' }, user), true);
+  assert.equal(canOptInProfile({ source: 'interests', username: null, pastedFrom: 'linkedin' }, user), true);
+  assert.equal(canOptInProfile({ source: 'interests', username: null }, user), true);
+  assert.equal(canOptInProfile({ source: 'github+interests', username: 'torvalds', pastedFrom: 'linkedin' }, user), false);
+  assert.equal(canOptInProfile({ source: 'interests', username: 'torvalds' }, user), false);
+  assert.equal(canOptInProfile({ source: 'interests', username: null }, null), false);
 });
 
 test('signing in fills an empty username field but keeps what was typed', () => {
