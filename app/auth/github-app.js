@@ -10,7 +10,6 @@ const STATE_TTL_SECONDS = 10 * 60;
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 5000;
-const MAX_REPOS = 50;
 const MAX_PAGES = 5;
 
 const callbackPath = `${COOKIE_PATH}/callback`;
@@ -71,7 +70,8 @@ async function getJson(fetch, token, path, span) {
   return res.json();
 }
 
-// The repos the user granted the App, across their installations (at most 50).
+// The repos the user granted the App, across their installations. The page
+// limit bounds collection; pickPrivateRepos sorts and caps repos for scanning.
 function listGrantedRepos({ fetch = globalThis.fetch, token }) {
   return gh.withSpan('github.app_list_repos', async (span) => {
     const inst = await getJson(fetch, token, '/user/installations?per_page=100', span);
@@ -79,17 +79,16 @@ function listGrantedRepos({ fetch = globalThis.fetch, token }) {
     const repos = [];
     for (const i of installations) {
       if (!Number.isSafeInteger(i?.id)) continue;
-      for (let page = 1; page <= MAX_PAGES && repos.length < MAX_REPOS; page += 1) {
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
         const body = await getJson(fetch, token, `/user/installations/${i.id}/repositories?per_page=100&page=${page}`, span);
         const list = Array.isArray(body?.repositories) ? body.repositories : [];
         repos.push(...list);
         if (list.length < 100) break;
       }
-      if (repos.length >= MAX_REPOS) break;
     }
     span.setAttribute('github.installation_count', installations.length);
-    span.setAttribute('github.granted_repo_count', Math.min(repos.length, MAX_REPOS));
-    return repos.slice(0, MAX_REPOS);
+    span.setAttribute('github.granted_repo_count', repos.length);
+    return repos;
   });
 }
 
