@@ -78,7 +78,8 @@ export function isSameLogin(value, login) {
 
 // ---------- API ----------
 
-async function api(path, { method = 'GET', body } = {}) {
+// Also used by the account page (account-page.js).
+export async function api(path, { method = 'GET', body } = {}) {
   const init = { method, headers: { accept: 'application/json' }, credentials: 'same-origin' };
   if (body !== undefined) {
     init.headers['content-type'] = 'application/json';
@@ -143,16 +144,20 @@ function renderHeader() {
   if (!account.user) {
     nav.replaceChildren(signInLink('Sign in with GitHub', 'account__link'));
   } else {
-    const u = account.user;
-    const avatar = u.avatarUrl ? h('img', { class: 'account__avatar', src: u.avatarUrl, alt: '', width: 28, height: 28 }) : null;
-    const out = h('button', { type: 'button', class: 'btn btn--small account__out' }, 'Sign out');
-    out.addEventListener('click', signOut);
-    nav.replaceChildren(
-      h('span', { class: 'account__who' }, avatar, h('span', {}, 'Signed in as ', h('strong', {}, `@${u.login}`))),
-      out,
-    );
+    nav.replaceChildren(...accountNav(account.user));
   }
   nav.hidden = false;
+}
+
+// Signed-in header: avatar and @login linking to the account page, and Sign out.
+// The account page passes { current: true } to mark its own link.
+export function accountNav(u, { current = false } = {}) {
+  const avatar = u.avatarUrl ? h('img', { class: 'account__avatar', src: u.avatarUrl, alt: '', width: 28, height: 28 }) : null;
+  const out = h('button', { type: 'button', class: 'btn btn--small account__out' }, 'Sign out');
+  out.addEventListener('click', signOut);
+  const link = h('a', { class: 'account__who account__link', href: '/account', 'aria-current': current ? 'page' : null },
+    avatar, h('span', {}, h('span', { class: 'sr-only' }, 'Your account: '), `@${u.login}`));
+  return [link, out];
 }
 
 // The top of the form: a prominent sign-in when signed out; when signed in,
@@ -243,7 +248,7 @@ function renderSaveBox() {
   box.hidden = false;
 }
 
-async function signOut() {
+export async function signOut() {
   try {
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
   } catch {
@@ -281,7 +286,10 @@ export function notifyPlanChanged() {
   syncSignedInHint(); // a restored plan may have put another username in the field
   if (!account.user) return;
   window.clearTimeout(saveTimer);
-  saveTimer = window.setTimeout(saveNow, SAVE_DELAY_MS);
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null;
+    saveNow();
+  }, SAVE_DELAY_MS);
 }
 
 async function setSocialOptIn(input) {
@@ -364,6 +372,35 @@ export async function initAccount(opts) {
     }
   } catch (err) {
     hooks.notify?.(`Could not load your saved plan: ${err.message}`);
+  }
+}
+
+// Switching conference cards while signed in: show that conference's saved
+// plan, if there is one. Saves any pending change to the plan on screen first.
+let switchSeq = 0;
+export async function loadSavedFor(conferenceId) {
+  if (!account.user || !conferenceId || state.loading) return false;
+  if ((state.plan?.conferenceId || state.request?.conferenceId) === conferenceId) return false;
+  const mine = ++switchSeq;
+  if (saveTimer) {
+    window.clearTimeout(saveTimer);
+    saveTimer = null;
+    await saveNow();
+  }
+  try {
+    const { state: saved, savedAt } = await api(`/api/me/plan?conferenceId=${encodeURIComponent(conferenceId)}`);
+    if (mine !== switchSeq || hooks.conferenceId() !== conferenceId || state.loading) return false;
+    if (!saved?.request || saved.request.conferenceId !== conferenceId || !applySnapshot(state, saved)) return false;
+    await loadSocial();
+    if (mine !== switchSeq) return false;
+    hooks.restore();
+    renderSaveBox();
+    syncSignedInHint(); // the restored plan may be for another username
+    if (savedAt) setSaveStatus(`Showing your saved plan for this conference (saved ${new Date(savedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}).`);
+    return true;
+  } catch (err) {
+    if (mine === switchSeq) hooks.notify?.(`Could not load your saved plan: ${err.message}`);
+    return false;
   }
 }
 

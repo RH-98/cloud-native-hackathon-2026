@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your account · Switchback</title>
+  <meta name="description" content="Your Switchback account: saved conference plans, matching and privacy settings, and your data.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="icon" href="/apple-touch-icon.png?v=2" type="image/png" sizes="180x180">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/account-page.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to your account</a>
+
+  <header class="masthead masthead--compact">
+    <div class="masthead__inner">
+      <p class="brand">
+        <a class="brand__home" href="/">
+          <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <circle class="brand__sun" cx="25" cy="8" r="3" />
+            <path class="brand__mountain" d="M2.5 27.5 16 5l13.5 22.5Z" />
+            <path class="brand__snow" d="M16 5l-3.3 5.5 2.1-1.1 1.4 1.2 1.4-1.3 1.7 1.2Z" />
+            <path class="brand__trail" d="M9 27.5 21.5 23l-10-4.5 7.5-4-3.5-2.7" />
+          </svg>
+          <span>Switchback</span>
+        </a>
+      </p>
+      <nav class="account" id="account" aria-label="Account" hidden></nav>
+      <h1 class="masthead__title">Your account</h1>
+      <p class="masthead__lede">Your saved plans, who can find you, and what we keep about you.</p>
+    </div>
+    <svg class="ridgeline" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <path class="ridgeline__far" d="M0 120 V70 L90 40 L170 62 L260 18 L340 50 L420 30 L520 66 L610 22 L700 48 L790 12 L880 52 L960 34 L1060 70 L1150 26 L1240 54 L1330 30 L1440 58 V120 Z" />
+      <path class="ridgeline__mid" d="M0 120 V88 L120 64 L210 84 L330 52 L450 86 L560 60 L680 90 L800 58 L930 84 L1040 62 L1170 92 L1290 66 L1440 86 V120 Z" />
+      <path class="ridgeline__near" d="M0 120 V106 L200 96 L420 108 L640 98 L860 110 L1080 96 L1300 106 L1440 100 V120 Z" />
+    </svg>
+  </header>
+
+  <main id="main" tabindex="-1" class="acct">
+    <p class="acct__back"><a href="/">&larr; Back to the planner</a></p>
+    <div id="acct-status" class="status" role="status" aria-live="polite"></div>
+    <div id="acct-content" class="acct__content" aria-busy="true">
+      <p class="hint">Loading your account…</p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p><strong>Switchback</strong> is unofficial, built at the Cloud Native Hackathon in Salt Lake City, 2026. It is not affiliated with the CNCF or the Linux Foundation.</p>
+  </footer>
+</body>
+</html>

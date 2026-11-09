@@ -67,6 +67,23 @@ test('static files block traversal, hidden files and unknown types', async (t) =
   assert.equal(resolveStatic('/../server.js'), null);
   assert.equal(resolveStatic('/a\0.html'), null);
   assert.equal(resolveStatic('/'), `${PUBLIC_DIR}/index.html`);
+  assert.equal(resolveStatic('/account'), `${PUBLIC_DIR}/account.html`);
+  assert.equal(resolveStatic('/account/'), null); // exact match only
+  assert.equal(resolveStatic('/account/../server.js'), null);
+});
+
+test('GET /account serves the account page with the CSP and no inline scripts', async (t) => {
+  const app = await start();
+  t.after(app.close);
+  const res = await fetch(`${app.base}/account`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/html/);
+  assert.match(res.headers.get('content-security-policy'), /script-src 'self'/);
+  const html = await res.text();
+  assert.match(html, /<script type="module" src="\/account-page.js"><\/script>/);
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/); // every script is external
+  assert.doesNotMatch(html, /\son[a-z]+=|style="/); // no inline handlers or styles
+  assert.equal((await fetch(`${app.base}/account-page.js`)).status, 200);
 });
 
 test('GET /api/conferences lists the snapshot', async (t) => {

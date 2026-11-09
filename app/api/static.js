@@ -1,5 +1,5 @@
 // Serves the UI from app/public/: known file types only, no directory
-// traversal, index.html at /, short cache headers (there is no build step and
+// traversal, index.html at /, account.html at /account, short cache headers (there is no build step and
 // no fingerprinting, so assets must not be cached for long).
 const fs = require('node:fs');
 const path = require('node:path');
@@ -19,6 +19,12 @@ const TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+// Clean URLs for pages: an exact match only, never a prefix.
+const PAGES = {
+  '/': '/index.html',
+  '/account': '/account.html',
+};
+
 function notFound(res) {
   sendError(res, 'not_found', 'Not found');
 }
@@ -32,7 +38,8 @@ function resolveStatic(urlPath, root = PUBLIC_DIR) {
     return null;
   }
   if (decoded.includes('\0') || decoded.includes('\\')) return null;
-  if (decoded === '/' || decoded === '') decoded = '/index.html';
+  if (decoded === '') decoded = '/';
+  if (Object.hasOwn(PAGES, decoded)) decoded = PAGES[decoded];
   // Reject any dot segment or hidden file outright, before resolving.
   if (decoded.split('/').some((part) => part === '..' || part.startsWith('.'))) return null;
   const file = path.resolve(root, `.${decoded}`);
