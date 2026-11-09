@@ -72,11 +72,16 @@ async function suggestConnections(input, deps = {}) {
   const logger = deps.logger || console;
   const options = { limit, pickedSessionIds, firstTimer };
 
-  // The requesting user is excluded by matchAttendees (profile.username).
-  const real = await realAttendees(conferenceId, deps).catch((err) => {
-    logger.warn(`connections: could not read opted-in users (${err.message})`);
-    return [];
-  });
+  // Real profiles are only available to signed-in users; exclude the viewer by
+  // their authenticated account id, not by the request's profile username.
+  const real = deps.viewer
+    ? await realAttendees(conferenceId, deps)
+      .then((rows) => rows.filter((a) => a.id !== `user:${deps.viewer.id}`))
+      .catch((err) => {
+        logger.warn(`connections: could not read opted-in users (${err.message})`);
+        return [];
+      })
+    : [];
   let backend = 'snapshot';
   let results = null;
   if (deps.client || esConfigured(env)) {

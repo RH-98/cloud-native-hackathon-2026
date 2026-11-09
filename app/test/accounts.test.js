@@ -72,11 +72,11 @@ function fakeGithub({ token = 'gho_fake_token', user = { id: 42, login: 'octocat
   return { fetch, calls };
 }
 
-async function start({ db = fakeDb(), github = fakeGithub(), enabled = true } = {}) {
+async function start({ db = fakeDb(), github = fakeGithub(), enabled = true, connections } = {}) {
   const accounts = enabled
     ? createAccounts({ db, clientId: 'client-id', clientSecret: 'client-secret', sessionSecret: SECRET, publicUrl: PUBLIC_URL, fetch: github.fetch })
     : createAccounts();
-  const server = http.createServer(createHandler({ buildProfile: async () => ({}), buildPlan: async () => ({}), accounts }));
+  const server = http.createServer(createHandler({ buildProfile: async () => ({}), buildPlan: async () => ({}), connections, accounts }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   return { base, db, github, close: () => new Promise((resolve) => server.close(resolve)) };
@@ -353,7 +353,51 @@ test('real opted-in users join the candidates, marked demo: false, without the r
     { userId: '1', login: 'octocat', displayName: 'Me', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1 }] } },
     { userId: '2', login: 'hubot', displayName: 'Hubot', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 0.8 }] } },
   ];
-  const result = await suggestConnections({ conferenceId: 'kubecon-na-2026', profile, limit: 20 }, { attendees: [], realAttendees, env: {} });
+  const result = await suggestConnections(
+    { conferenceId: 'kubecon-na-2026', profile, limit: 20 },
+    { attendees: [], realAttendees, env: {}, viewer: { id: '1' } },
+  );
   assert.deepEqual(result.connections.map((c) => c.attendee.handle), ['hubot']);
   assert.equal(result.connections[0].attendee.demo, false);
+});
+
+test('only signed-in callers can see real opted-in attendees', async (t) => {
+  let realAttendeeReads = 0;
+  const app = await start({
+    connections: {
+      env: {},
+      realAttendees: async () => {
+        realAttendeeReads += 1;
+        return [
+          { userId: '1', login: 'octocat', displayName: 'Me', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1 }] } },
+          { userId: '2', login: 'opted-real-only', displayName: 'Opted Real Only', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 0.8 }] } },
+        ];
+      },
+    },
+  });
+  t.after(app.close);
+
+  const profile = { username: null, tools: [{ name: 'argo-cd', weight: 1 }], languages: [], topics: [], keywords: [] };
+  const request = (token) => fetch(`${app.base}/api/connections`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { cookie: `${gh.SESSION_COOKIE}=${token}` } : {}),
+    },
+    body: JSON.stringify({ conferenceId: 'kubecon-na-2026', profile, limit: 20 }),
+  });
+
+  const anonymous = await request();
+  assert.equal(anonymous.status, 200);
+  const anonymousBody = await anonymous.json();
+  assert.equal(realAttendeeReads, 0);
+  assert.ok(!JSON.stringify(anonymousBody).includes('opted-real-only'));
+
+  const { token } = await signIn(app);
+  const signedIn = await request(token);
+  assert.equal(signedIn.status, 200);
+  const signedInBody = await signedIn.json();
+  assert.equal(realAttendeeReads, 1);
+  const realMatches = signedInBody.connections.filter((c) => c.attendee.demo === false);
+  assert.deepEqual(realMatches.map((c) => c.attendee.handle), ['opted-real-only']);
 });

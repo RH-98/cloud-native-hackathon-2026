@@ -7,7 +7,7 @@ const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
 const { createAuthHandler } = require('./auth');
 const { createMeHandler } = require('./me');
-const { createAccounts } = require('../auth');
+const { createAccounts, sessionToken } = require('../auth');
 
 // connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
@@ -49,9 +49,12 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections, accoun
     if (p === '/api/me' || p.startsWith('/api/me/')) return handleMe(req, res, url);
     if (p === '/api/connections') {
       if (req.method !== 'POST') return sendError(res, 'method_not_allowed', 'Use POST', { allow: 'POST' });
-      return handleConnections(req, res).catch(() => {
-        if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
-      });
+      const token = accounts.enabled ? sessionToken(req) : null;
+      return Promise.resolve(token ? accounts.db.getSessionUser(token) : null)
+        .then((viewer) => handleConnections(req, res, { viewer }))
+        .catch(() => {
+          if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
+        });
     }
     if (p.startsWith('/api/')) return sendError(res, 'not_found', 'No such API route');
     return handleStatic(req, res, p);
