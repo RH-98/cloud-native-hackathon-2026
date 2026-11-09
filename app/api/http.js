@@ -1,6 +1,8 @@
 // Small HTTP helpers shared by the API handlers: security headers, JSON
 // responses in the contract's error format, and a size-limited JSON body reader.
 
+const { trace } = require('@opentelemetry/api');
+
 // Only our own origin, plus Google Fonts for the typeface, GitHub avatars, and
 // Dash0's ingest endpoint for real-user monitoring (the Web SDK posts OTLP there).
 const CSP = [
@@ -67,6 +69,11 @@ function sendError(res, code, message, extraHeaders = {}) {
 
 // Reads a JSON body of at most `limit` bytes. Rejects with HttpError.
 function readJsonBody(req, limit = 16 * 1024) {
+  // Record the body size on the request's span (Dash0 Agent0 found large
+  // plan saves spend most of their time uploading the body).
+  const span = trace.getActiveSpan();
+  const declaredSize = Number(req.headers['content-length']);
+  if (span && Number.isFinite(declaredSize)) span.setAttribute('http.request.body.size', declaredSize);
   return new Promise((resolve, reject) => {
     const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
     if (type !== 'application/json') {
@@ -97,6 +104,7 @@ function readJsonBody(req, limit = 16 * 1024) {
     req.on('end', () => {
       if (done) return;
       done = true;
+      span?.setAttribute('app.request.body.decoded_size', size);
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch {

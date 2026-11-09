@@ -35,3 +35,12 @@ Both workloads are healthy: there are no real application errors and no latency 
 ## Suggested next step (Agent0)
 
 Add `service.version` (from the git SHA) and `deployment.environment.name` to both services. Add the Kubernetes attributes, from the Downward API or from the collector's k8s attributes processor.
+
+## Second investigation (4:05 PM): slow plan saves and first plans
+
+Thread: https://app.dash0.com/goto/agent0?thread_id=79d9a5cc-ef79-4832-a541-d2f09933de90&dataset=default&org=1c5491d7-7d87-48ac-8577-3a461cb09ac3
+
+| Finding (Agent0) | Evidence it gave | What we did |
+|---|---|---|
+| The first `POST /api/plan` for a GitHub user takes 2 to 6 s when the profile isn't cached | In `fromGithub` (`app/profile/index.js`), `fetchUser`, `fetchRepos`, `fetchStarred` and `fetchEvents` ran one after another, though each needs only the username. `fetchLanguages` waited for every repo scan to finish, though it needs only the repo list. | Fixed: the four username calls start together (`Promise.allSettled`; a 404 on the user is still `not_found`, and a rate limit on starred or events still gives a partial profile). Languages and contributed-to repos now run alongside the tree scans. The API budget (25 calls with a token, 15 without) is planned the same way: one tree per repo is reserved first. |
+| `PUT /api/me/plan` averages about 950 ms, but the INSERT takes 9 to 44 ms | The rest of the time goes to receiving the request body (the full plan and profile, up to 450 KB) in `readJsonBody` (`app/api/http.js`) | Measured: `readJsonBody` records `http.request.body.size` (Content-Length) and `app.request.body.decoded_size` (bytes read) on the request span, so Dash0 can relate save time to body size. Next: stop sending the profile's evidence lists in saves (`app/public/account.js`). Not done here, because restoring a saved plan uses the saved profile. |

@@ -12,6 +12,7 @@ const { createChangesHandler } = require('./changes');
 const schedule = require('../schedule');
 const { createMeHandler } = require('./me');
 const { createAccounts, sessionToken } = require('../auth');
+const { requestStates } = require('./requests');
 
 // connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
@@ -66,7 +67,13 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections, accoun
         console.error(`POST /api/connections session lookup failed: ${err && (err.code || err.name)}`);
         return null;
       }) : null)
-        .then((viewer) => handleConnections(req, res, { viewer }))
+        .then((viewer) => handleConnections(req, res, {
+          viewer,
+          accountsEnabled: accounts.enabled,
+          connectionStates: viewer
+            ? (conferenceId) => accounts.db.listConnectionRequests(viewer.id, conferenceId).then((rows) => requestStates(rows, viewer.id))
+            : null,
+        }))
         .catch(() => {
           if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
         });

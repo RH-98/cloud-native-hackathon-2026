@@ -152,6 +152,8 @@ function publicAttendee(a) {
     bio: a.bio,
     // false only for real signed-in attendees (app/db listOptedInProfiles).
     demo: a.fictional !== false,
+    // Real attendees only: the account to send a connection request to.
+    ...(a.fictional === false && a.userId ? { userId: String(a.userId) } : {}),
   };
 }
 

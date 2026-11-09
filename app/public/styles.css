@@ -734,6 +734,24 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
 .person__why { margin: var(--space-2) 0 0; }
 .person__also { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-1); font-size: 0.875rem; }
 .person__also-label { font-weight: 700; }
+.person__connect { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.person__connect-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.person__connect-row a:not(.btn) { color: var(--link); font-weight: 700; }
+.person__connect-row a.btn { text-decoration: none; }
+.person__connect-state { font-weight: 700; }
+.person__connect-note { font-size: 0.875rem; color: var(--text-muted); }
+.person__connect-status { margin: var(--space-1) 0 0; font-size: 0.875rem; color: var(--text-muted); }
+.person__connect-status:empty { display: none; }
+.account__badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.4em; height: 1.4em; padding: 0 0.35em; border-radius: 999px;
+  background: var(--masthead-hl); color: var(--c-night); font-size: 0.75rem; font-weight: 800;
+}
+.acct-conns { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; gap: var(--space-2); }
+.acct-conn { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); }
+.acct-conn__who { font-weight: 700; margin-right: auto; }
+.acct-conn__meta { width: 100%; margin: 0; font-size: 0.875rem; color: var(--text-muted); }
+.acct-conn a:not(.btn) { color: var(--link); }
 
 /* ---------- Footer ---------- */
 

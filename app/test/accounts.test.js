@@ -428,9 +428,9 @@ test('connections logs session lookup failures and continues as signed out', asy
 
 test('migrations are idempotent and run under an advisory lock', async () => {
   for (const stmt of MIGRATION_SQL.split(';').map((s) => s.trim()).filter(Boolean)) {
-    assert.match(stmt, /^CREATE (TABLE|INDEX) IF NOT EXISTS /, stmt.slice(0, 60));
+    assert.match(stmt, /^CREATE (UNIQUE )?(TABLE|INDEX) IF NOT EXISTS /, stmt.slice(0, 60));
   }
-  for (const table of ['users', 'sessions', 'saved_plans', 'social_profiles']) assert.match(MIGRATION_SQL, new RegExp(`TABLE IF NOT EXISTS ${table} `));
+  for (const table of ['users', 'sessions', 'saved_plans', 'social_profiles', 'connection_requests']) assert.match(MIGRATION_SQL, new RegExp(`TABLE IF NOT EXISTS ${table} `));
   assert.doesNotMatch(MIGRATION_SQL, /access_token|token\s+text/i);
 
   const log = [];
@@ -609,7 +609,7 @@ test('DELETE /api/me runs in one transaction and rolls back on failure', async (
   await db.ready();
   log.length = 0;
   await assert.rejects(db.deleteUser('1'), /boom/);
-  assert.deepEqual(log, ['BEGIN', 'DELETE FROM social_profiles', 'DELETE FROM private_profiles', 'DELETE FROM saved_plans', 'DELETE FROM sessions', 'ROLLBACK', 'release']);
+  assert.deepEqual(log, ['BEGIN', 'DELETE FROM connection_requests', 'DELETE FROM social_profiles', 'DELETE FROM private_profiles', 'DELETE FROM saved_plans', 'DELETE FROM sessions', 'ROLLBACK', 'release']);
 });
 
 test('account routes 503 when the database is down', async (t) => {

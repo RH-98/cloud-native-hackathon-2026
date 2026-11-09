@@ -1,6 +1,7 @@
 // Builds the profile card and the plan (day tabs + timeline) as DOM nodes.
 // Everything from the API goes in as text nodes, never as HTML.
 // Buttons carry data-action attributes; app.js handles the clicks.
+import { connectControls } from './connect.js';
 import { cityOf, formatDateSpan, formatDay, formatTimeRange, minutesBetween, safeUrl, timeRangeParts, zoneLongName } from './format.js';
 
 const MIN_GAP_MINUTES = 15;
@@ -484,7 +485,8 @@ export function renderConnections(section, data, timeZone) {
           sessions.length ? h('ul', { class: 'person__also' }, sessions.slice(0, 3).map((s) => h('li', {},
             h('span', { class: 'person__also-label' }, 'Also going to: '),
             s.title,
-            s.start ? [' (', h('time', { datetime: s.start }, formatTimeRange(s.start, null, timeZone)), ')'] : null))) : null));
+            s.start ? [' (', h('time', { datetime: s.start }, formatTimeRange(s.start, null, timeZone)), ')'] : null))) : null,
+          connectControls(c, { conferenceId: data.conferenceId, connect: data.connect })));
     })));
   return true;
 }
