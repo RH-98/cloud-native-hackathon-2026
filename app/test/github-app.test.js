@@ -410,3 +410,17 @@ test('private-scan requests are marked so the automatic HTTP spans skip their UR
     await app.close();
   }
 });
+
+test('every page of granted repos is listed before picking the newest', async () => {
+  const page = (n, count) => Array.from({ length: count }, (_, i) => ({ full_name: `o/r${n}-${i}`, private: true, size: 1, pushed_at: `2026-0${n}-01T00:00:00Z` }));
+  const fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/user/installations?')) return Response.json({ installations: [{ id: 1 }] });
+    const p = Number(new URL(u).searchParams.get('page'));
+    return Response.json({ repositories: p === 1 ? page(1, 100) : p === 2 ? page(9, 3) : [] });
+  };
+  const repos = await ghApp.listGrantedRepos({ fetch, token: 't' });
+  assert.equal(repos.length, 103);
+  // The newest repos were on the second page.
+  assert.deepEqual(pickPrivateRepos(repos).slice(0, 3).map((r) => r.full_name.slice(0, 5)), ['o/r9-', 'o/r9-', 'o/r9-']);
+});

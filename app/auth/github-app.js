@@ -10,8 +10,11 @@ const STATE_TTL_SECONDS = 10 * 60;
 const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 5000;
-const MAX_REPOS = 50;
-const MAX_PAGES = 5;
+// Every granted repo is listed (bounded), so the caller can pick the most
+// recently pushed; the API's order is not by push time.
+const MAX_PAGES = 5; // per installation, 100 repos a page
+const MAX_INSTALLATIONS = 10;
+const MAX_LISTED = MAX_PAGES * 100 * 2;
 
 const callbackPath = `${COOKIE_PATH}/callback`;
 
@@ -71,25 +74,26 @@ async function getJson(fetch, token, path, span) {
   return res.json();
 }
 
-// The repos the user granted the App, across their installations (at most 50).
+// The repos the user granted the App, across their installations, every page
+// (bounded); pickPrivateRepos sorts by push time and keeps the newest 8.
 function listGrantedRepos({ fetch = globalThis.fetch, token }) {
   return gh.withSpan('github.app_list_repos', async (span) => {
     const inst = await getJson(fetch, token, '/user/installations?per_page=100', span);
     const installations = Array.isArray(inst?.installations) ? inst.installations : [];
     const repos = [];
-    for (const i of installations) {
+    for (const i of installations.slice(0, MAX_INSTALLATIONS)) {
       if (!Number.isSafeInteger(i?.id)) continue;
-      for (let page = 1; page <= MAX_PAGES && repos.length < MAX_REPOS; page += 1) {
+      for (let page = 1; page <= MAX_PAGES && repos.length < MAX_LISTED; page += 1) {
         const body = await getJson(fetch, token, `/user/installations/${i.id}/repositories?per_page=100&page=${page}`, span);
         const list = Array.isArray(body?.repositories) ? body.repositories : [];
         repos.push(...list);
         if (list.length < 100) break;
       }
-      if (repos.length >= MAX_REPOS) break;
+      if (repos.length >= MAX_LISTED) break;
     }
     span.setAttribute('github.installation_count', installations.length);
-    span.setAttribute('github.granted_repo_count', Math.min(repos.length, MAX_REPOS));
-    return repos.slice(0, MAX_REPOS);
+    span.setAttribute('github.granted_repo_count', repos.length);
+    return repos.slice(0, MAX_LISTED);
   });
 }
 
