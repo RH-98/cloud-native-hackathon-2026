@@ -343,3 +343,17 @@ test('migrations are idempotent and run under an advisory lock', async () => {
   await db.ready(); // memoized: no third run
   assert.equal(log.filter((l) => l[0].startsWith('SELECT pg_advisory_lock')).length, 2);
 });
+
+// ---------- Real opted-in attendees in "People to meet" ----------
+
+test('real opted-in users join the candidates, marked demo: false, without the requester', async () => {
+  const { suggestConnections } = require('../social');
+  const profile = { username: 'octocat', tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 0.9 }], languages: [], topics: [], keywords: [] };
+  const realAttendees = async () => [
+    { userId: '1', login: 'octocat', displayName: 'Me', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1 }] } },
+    { userId: '2', login: 'hubot', displayName: 'Hubot', profile: { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 0.8 }] } },
+  ];
+  const result = await suggestConnections({ conferenceId: 'kubecon-na-2026', profile, limit: 20 }, { attendees: [], realAttendees, env: {} });
+  assert.deepEqual(result.connections.map((c) => c.attendee.handle), ['hubot']);
+  assert.equal(result.connections[0].attendee.demo, false);
+});

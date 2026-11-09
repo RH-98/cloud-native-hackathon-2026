@@ -3,6 +3,7 @@
 // profile. The token (optional) is only ever sent to api.github.com and never
 // appears in errors, logs or span attributes.
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
+const metrics = require('../metrics');
 
 const tracer = trace.getTracer('conference-profile');
 
@@ -61,6 +62,8 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
     span.setAttribute('http.response.status_code', res.status);
     const remaining = res.headers.get('x-ratelimit-remaining');
     if (remaining !== null) span.setAttribute('github.ratelimit.remaining', Number(remaining));
+    // Only api.github.com counts against the API rate limit (raw file fetches don't).
+    if (auth && remaining !== null) metrics.recordGithubRateLimit(remaining);
     if (!res.ok) {
       res.body?.cancel?.().catch(() => {});
       if (res.status === 429 || (res.status === 403 && (remaining === '0' || res.headers.has('retry-after')))) {

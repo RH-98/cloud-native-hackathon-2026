@@ -3,14 +3,17 @@
 const { send, sendError } = require('./http');
 const { handleConferences, hasConference } = require('./conferences');
 const { createPlanHandler } = require('./plan');
+const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
 const { createAuthHandler } = require('./auth');
 const { createMeHandler } = require('./me');
 const { createAccounts } = require('../auth');
 
+// connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
-function createHandler({ buildProfile, buildPlan, publicDir, accounts = createAccounts() } = {}) {
+function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts() } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
+  const handleConnections = createConnectionsHandler(connections);
   const handleAuth = createAuthHandler(accounts);
   const handleMe = createMeHandler(accounts);
   const handleStatic = createStaticHandler(publicDir);
@@ -44,6 +47,12 @@ function createHandler({ buildProfile, buildPlan, publicDir, accounts = createAc
       });
     }
     if (p === '/api/me' || p.startsWith('/api/me/')) return handleMe(req, res, url);
+    if (p === '/api/connections') {
+      if (req.method !== 'POST') return sendError(res, 'method_not_allowed', 'Use POST', { allow: 'POST' });
+      return handleConnections(req, res).catch(() => {
+        if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
+      });
+    }
     if (p.startsWith('/api/')) return sendError(res, 'not_found', 'No such API route');
     return handleStatic(req, res, p);
   };
