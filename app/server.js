@@ -3,9 +3,6 @@
 // deploy/ keep working.
 const http = require('node:http');
 const { logs, SeverityNumber } = require('@opentelemetry/api');
-const { startGithubRateLimitPolling } = require('./github-rate-limit');
-
-const stopGithubRateLimitPolling = startGithubRateLimitPolling();
 
 const port = Number(process.env.PORT || 8080);
 const team = process.env.TEAM_NAME || 'your-team';
@@ -55,7 +52,4 @@ server.listen(port, () => {
 });
 
 // Exit cleanly when Kubernetes stops the pod, so rollouts don't drop requests.
-process.on('SIGTERM', () => {
-  stopGithubRateLimitPolling();
-  server.close();
-});
+process.on('SIGTERM', () => server.close());

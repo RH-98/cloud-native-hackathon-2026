@@ -16,7 +16,9 @@ The custom metrics come from `app/metrics.js` (meter `conference-planner`). The 
 - Attribute keys use underscores: `service.name` becomes `service_name`, `search.backend` becomes `search_backend`, `http.response.status_code` becomes `http_response_status_code`.
 - Histograms are native histograms. Use `histogram_quantile(0.95, sum(rate({…}[5m])))` for percentiles and `histogram_count(rate({…}[5m]))` for request rates; there are no `_bucket` series.
 
-We checked these queries against live `conference-planner` data with the Dash0 MCP `promql` tool. The `planner.*` and `github.*` series appear once the build with `app/metrics.js` is deployed and has served some plans.
+We checked the query patterns against live `conference-planner` data with the Dash0 MCP `promql` tool: the HTTP histogram queries, `histogram_count`, and `last_over_time` on a live gauge. The `planner.*` series appear once the build with `app/metrics.js` is deployed and has served some plans.
+
+**Pending: `github.ratelimit.remaining`.** Its two dashboard panels and the "GitHub rate limit low" check stay empty until the profile's GitHub client feeds the gauge. To do that, call `require('../metrics').recordGithubRateLimit(res.headers.get('x-ratelimit-remaining'))` on every GitHub API response, in `app/profile/`.
 
 ## Import the dashboard
 

@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { metrics: otelMetrics } = require('@opentelemetry/api');
 const metrics = require('../metrics');
-const { pollGithubRateLimit } = require('../github-rate-limit');
 const { buildPlan } = require('../planner');
 
 // A fake MeterProvider that records every measurement, so tests need no SDK.
@@ -92,21 +91,6 @@ test('metric attributes only ever take values from fixed sets', async () => {
     metrics.recordGithubRateLimit('4321');
     metrics.recordGithubRateLimit('not a number');
     assert.deepEqual(fake.observe(), [{ name: 'github.ratelimit.remaining', value: 4321, attributes: {} }]);
-
-    let request;
-    await pollGithubRateLimit({
-      fetchImpl: async (url, options) => {
-        request = { url, options };
-        return {
-          status: 403,
-          headers: { get: (name) => (name === 'x-ratelimit-remaining' ? '0' : null) },
-        };
-      },
-      token: 'test-token',
-    });
-    assert.equal(request.url, 'https://api.github.com/rate_limit');
-    assert.equal(request.options.headers.authorization, 'Bearer test-token');
-    assert.deepEqual(fake.observe(), [{ name: 'github.ratelimit.remaining', value: 0, attributes: {} }]);
   } finally {
     otelMetrics.disable();
     metrics._reset();
