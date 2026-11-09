@@ -25,6 +25,19 @@ spec:
           env:
             - name: TEAM_NAME
               value: "ryan-hilton-real"
+            # Planner data sources. Keys live in the app-credentials Secret, never in git.
+            - name: ELASTICSEARCH_URL
+              value: "https://my-vectordb-project-ebb49c.es.us-east4.gcp.elastic.cloud:443"
+            - name: ELASTICSEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: elasticsearch-api-key
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: github-token
             # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS
