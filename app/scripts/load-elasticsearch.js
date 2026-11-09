@@ -9,7 +9,9 @@ const es = require('../search/elasticsearch');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'conferences');
 
-// Send buffered spans before the process exits (the SDK only flushes on SIGTERM).
+// Send buffered spans as soon as the work is done. With --require ./telemetry.js
+// (the Job sets it), telemetry.js also shuts the SDK down on beforeExit, which
+// flushes spans, metrics and logs; this early span flush is a no-op without an SDK.
 async function flushTelemetry() {
   const provider = trace.getTracerProvider();
   const delegate = typeof provider.getDelegate === 'function' ? provider.getDelegate() : provider;
