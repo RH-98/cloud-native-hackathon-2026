@@ -182,7 +182,8 @@ function createMeHandler(accounts) {
         if (user && typeof accounts.db.countIncomingConnectionRequests === 'function') {
           const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch((err) => {
             const span = trace.getActiveSpan();
-            span?.recordException({ name: err?.name || 'Error', message: err?.message || 'unknown' });
+            span?.recordException(err);
+            span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection request count unavailable' });
             span?.setAttribute('accounts.db_error', true);
             console.error(`GET /api/me: connection request count unavailable (${err && (err.code || err.name)})`);
             return null;

@@ -7,14 +7,31 @@ const http = require('node:http');
 const { createHandler } = require('../api/router');
 const { createAccounts } = require('../auth');
 const gh = require('../auth/github');
-const { hashToken } = require('../db');
+const { createDb, hashToken } = require('../db');
 const { requestStates } = require('../api/requests');
+const { trace, SpanStatusCode } = require('@opentelemetry/api');
 
 const PUBLIC_URL = 'https://planner.example';
 const CONF = 'kubecon-na-2026';
 const DEMO = 'demo-uma-pebblecrest'; // opted in
 const DEMO_NOT_OPTED = 'demo-juno-oakhollow';
 const ARGO = { tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1 }], topics: [], languages: [], keywords: [] };
+
+function captureActiveSpan(t) {
+  const span = {
+    exceptions: [],
+    statuses: [],
+    attributes: {},
+    setAttribute(key, value) { this.attributes[key] = value; },
+    setAttributes() {},
+    recordException(err) { this.exceptions.push(err); },
+    setStatus(status) { this.statuses.push(status); },
+  };
+  const getActiveSpan = trace.getActiveSpan;
+  trace.getActiveSpan = () => span;
+  t.after(() => { trace.getActiveSpan = getActiveSpan; });
+  return span;
+}
 
 function fakeDb() {
   const users = new Map();
@@ -73,7 +90,7 @@ function fakeDb() {
       const r = requests.get(String(id));
       if (!r || r.toUserId !== String(toUserId) || r.status === 'accepted') return null;
       r.status = status;
-      if (status !== 'declined') r.updatedAt = new Date(Date.now() + 1000).toISOString();
+      r.updatedAt = new Date(Date.parse(r.updatedAt) + 1000).toISOString();
       return withUsers(r);
     },
     async withdrawConnectionRequest(id, fromUserId) {
@@ -161,12 +178,30 @@ test('request lifecycle: create, duplicate, accept; badge counts incoming', asyn
   assert.equal((await bob.call(`/api/me/connections/${request.id}/decline`, { method: 'POST' })).status, 404);
 });
 
+test('badge count failures are recorded on the active span but remain best effort', async (t) => {
+  const app = await start(t);
+  const ada = await app.user('ada');
+  const error = new Error('count unavailable');
+  app.db.countIncomingConnectionRequests = async () => { throw error; };
+  const span = captureActiveSpan(t);
+
+  const res = await ada.call('/api/me');
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(body.connectionRequests, undefined);
+  assert.deepEqual(span.exceptions, [error]);
+  assert.deepEqual(span.statuses, [{ code: SpanStatusCode.ERROR, message: 'connection request count unavailable' }]);
+});
+
 test('decline is not revealed to the sender; withdraw removes the request', async (t) => {
   const app = await start(t);
   const ada = await app.user('ada');
   const bob = await app.user('bob');
   const { request } = await (await connect(ada, { userId: bob.id })).json();
-  assert.equal((await bob.call(`/api/me/connections/${request.id}/decline`, { method: 'POST' })).status, 200);
+  const decline = await bob.call(`/api/me/connections/${request.id}/decline`, { method: 'POST' });
+  assert.equal(decline.status, 200);
+  const declined = (await decline.json()).request;
+  assert.equal(Date.parse(declined.updatedAt), Date.parse(request.createdAt) + 1000);
   assert.equal((await listFor(bob)).incoming.length, 0);
   const adaList = await listFor(ada);
   assert.equal(adaList.outgoing.length, 1);
@@ -176,6 +211,20 @@ test('decline is not revealed to the sender; withdraw removes the request', asyn
   assert.equal((await bob.call(`/api/me/connections/${request.id}`, { method: 'DELETE' })).status, 404); // not the sender
   assert.equal((await ada.call(`/api/me/connections/${request.id}`, { method: 'DELETE' })).status, 200);
   assert.equal(app.db.requests.size, 0);
+});
+
+test('orders a sender\'s declined requests by creation time', async () => {
+  let query;
+  const db = createDb({
+    connect: async () => ({ query: async () => {}, release() {} }),
+    query: async (text, params) => {
+      query = { text, params };
+      return { rows: [] };
+    },
+  });
+  await db.listConnectionRequests('12', CONF);
+  assert.match(query.text, /ORDER BY CASE\s+WHEN r.from_user_id = \$1 AND r.status = 'declined' THEN r.created_at\s+ELSE r.updated_at\s+END DESC/);
+  assert.deepEqual(query.params, ['12', CONF]);
 });
 
 test('asking someone who already asked you accepts their request', async (t) => {
@@ -261,6 +310,25 @@ test('People to meet carries the request state for signed-in viewers only', asyn
   const anon = await (await fetch(`${app.base}/api/connections`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
   assert.deepEqual(anon.connect, { enabled: true, signedIn: false });
   assert.ok(anon.connections.every((c) => c.requestState === undefined));
+});
+
+test('connection state failures are recorded on the active span but remain best effort', async (t) => {
+  const app = await start(t);
+  const ada = await app.user('ada');
+  const error = new Error('states unavailable');
+  app.db.listConnectionRequests = async () => { throw error; };
+  const span = captureActiveSpan(t);
+
+  const res = await ada.call('/api/connections', {
+    method: 'POST',
+    body: { conferenceId: CONF, profile: ARGO, limit: 5 },
+  });
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(body.connections.length > 0);
+  assert.ok(body.connections.every((connection) => connection.requestState === undefined));
+  assert.deepEqual(span.exceptions, [error]);
+  assert.deepEqual(span.statuses, [{ code: SpanStatusCode.ERROR, message: 'connection states unavailable' }]);
 });
 
 test('requestStates ranks connected over incoming over requested', () => {

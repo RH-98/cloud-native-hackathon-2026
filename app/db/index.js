@@ -302,7 +302,10 @@ function createDb(pool) {
            JOIN users fu ON fu.id = r.from_user_id
            LEFT JOIN users tu ON tu.id = r.to_user_id
           WHERE (r.from_user_id = $1 OR r.to_user_id = $1) AND ($2::text IS NULL OR r.conference_id = $2)
-          ORDER BY r.updated_at DESC
+          ORDER BY CASE
+                     WHEN r.from_user_id = $1 AND r.status = 'declined' THEN r.created_at
+                     ELSE r.updated_at
+                   END DESC
           LIMIT 500`,
         [userId, conferenceId],
       );

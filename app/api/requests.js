@@ -98,6 +98,8 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
   async function view(r, user, cache) {
     const ctx = await contextFor(user, r.conferenceId, cache);
     const outgoing = r.fromUserId === String(user.id);
+    // A decline stays "pending" for the sender, timestamp included.
+    const hideDecline = outgoing && r.status === 'declined';
     let person;
     let shared = [];
     let simulated = false;
@@ -119,8 +121,6 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
       const p = ctx.profiles.get(String(other.id));
       if (p) shared = sharedLabels(ctx.viewerProfile, { handle: other.login, fictional: false, interests: p.profile || {} });
     }
-    // A decline stays "pending" for the sender, timestamp included.
-    const hideDecline = outgoing && r.status === 'declined';
     return {
       id: r.id,
       conferenceId: r.conferenceId,

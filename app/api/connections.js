@@ -76,7 +76,8 @@ async function handleConnections(body, deps = {}) {
     // Best effort: without states the cards still render, just without Connect state.
     const states = await Promise.resolve().then(() => deps.connectionStates(conferenceId)).catch((err) => {
       const span = trace.getActiveSpan();
-      span?.recordException({ name: err?.name || 'Error', message: err?.message || 'unknown' });
+      span?.recordException(err);
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection states unavailable' });
       span?.setAttribute('accounts.db_error', true);
       console.error(`connections: request states unavailable (${err && (err.code || err.name)})`);
       return null;
