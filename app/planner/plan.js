@@ -6,8 +6,8 @@ const MIN_SCORE = 0.2; // below this a session isn't worth suggesting: the time 
 // A pick must score at least this share of the day's best match.
 const RELATIVE_FLOOR = 0.5;
 // Keynotes often have no description, so they rarely match a profile. They get
-// a floor just above MIN_SCORE, and only where no real match overlaps them, so
-// the keynote block isn't shown as free time but never displaces a match.
+// a floor just above MIN_SCORE, and clear the relative floor only when no
+// pickable real match overlaps them, so a keynote never displaces a match.
 const KEYNOTE_TRACK = 'Keynote Sessions';
 const KEYNOTE_SCORE = Math.round((MIN_SCORE + 0.01) * 1000) / 1000;
 const MIN_GAP_MINUTES = 30; // free time this long gets booth suggestions
@@ -214,11 +214,19 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
   const pinnedIds = new Set(pinnedRecs.map((r) => r.session.id));
   const good = recs.filter((r) => r.score >= MIN_SCORE && !pinnedIds.has(r.session.id));
   // Picks must also be within reach of the day's best match; weaker sessions
-  // can still be backups. Keynotes keep their floor.
+  // can still be backups. Keynotes clear the floor only if no pickable real match overlaps.
   const floor = Math.max(MIN_SCORE, RELATIVE_FLOOR * Math.max(0, ...good.map((r) => r.score)));
-  const open = good.filter(
-    (r) => (r.score >= floor || isKeynote(r.session)) && !pinnedRecs.some((p) => conflicts(r.session, p.session, gapMs)),
-  );
+  const open = good.filter((r) => {
+    if (pinnedRecs.some((p) => conflicts(r.session, p.session, gapMs))) return false;
+    if (r.score >= floor) return true;
+    // Keynote floor recs: only where no pickable real match overlaps.
+    return (
+      isKeynote(r.session) &&
+      !good.some(
+        (o) => o !== r && !isKeynote(o.session) && o.score >= floor && conflicts(o.session, r.session),
+      )
+    );
+  });
   const chosen = bestSchedule(open, gapMs);
   const picks = [
     ...pinnedRecs.map((rec) => ({ rec, pinned: true })),
@@ -262,13 +270,12 @@ function isKeynote(session) {
 }
 
 // Keynotes that scored below MIN_SCORE (or weren't returned by search at all)
-// and overlap no real match: lifted to KEYNOTE_SCORE with the reason "Keynote".
+// are lifted to KEYNOTE_SCORE; planDay checks whether that clears the pick floor.
 function keynoteRecs(snapshot, matched, byId, isEligible) {
   const real = matched.filter((r) => r.score >= MIN_SCORE);
   const realIds = new Set(real.map((r) => r.session.id));
   return (snapshot.sessions || [])
     .filter((s) => isKeynote(s) && !realIds.has(s.id) && isEligible(s))
-    .filter((s) => !real.some((r) => conflicts(r.session, s)))
     .map((session) => {
       const found = byId.get(session.id);
       const reasons = found ? found.reasons.filter((r) => r !== 'Keynote') : [];
