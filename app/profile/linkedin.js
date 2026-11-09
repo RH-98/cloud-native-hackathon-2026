@@ -7,7 +7,7 @@
 // schools and other people are never extracted: we only keep catalog tools,
 // languages, topics implied by job titles, skills and a short list of strong
 // keywords.
-const { detectTools, lookupAlias, matchInterests, phraseRegex } = require('./tools');
+const { detectInterest, lookupAlias, matchInterests, phraseRegex } = require('./tools');
 const { languageOf } = require('./languages');
 
 const MAX_PASTE = 10000;
@@ -252,7 +252,8 @@ function addSkill(c, item, weight) {
 function addProse(c, lines, weight) {
   if (!lines.length) return;
   const text = lines.join('\n').toLowerCase();
-  for (const name of detectTools({ text }).keys()) c.addTool(name, weight);
+  // Plain catalog mentions (no README list filtering: a sentence naming several tools is real signal here).
+  for (const name of detectInterest({ description: text }, 'mention').keys()) c.addTool(name, weight);
   for (const { k, re } of PROSE_KEYWORDS) {
     if (re.test(text) && !c.proseKeywords.includes(k)) c.proseKeywords.push(k);
   }

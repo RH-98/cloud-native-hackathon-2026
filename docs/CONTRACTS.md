@@ -28,17 +28,33 @@ Throws `ProfileError` (`err.code`: `not_found`, `rate_limited`, `upstream`, `inv
   "displayName": "The Octocat",
   "avatarUrl": "https://…",           // null for interests
   "repoCount": 8,                     // repos scanned
-  "languages": [{ "name": "Go", "weight": 0.6 }],            // weights 0..1, sorted desc
-  "tools": [{ "name": "argo-cd", "label": "Argo CD", "weight": 0.9, "evidence": ["octocat/deploy"] }],
+  "languages": [{ "name": "Go", "weight": 0.6 }],            // weights 0..1, sorted desc; byte-weighted per repo
+                                      // (GET /repos/:o/:r/languages), blended with recency; under 3% dropped
+  "tools": [{
+    "name": "argo-cd", "label": "Argo CD", "weight": 0.9, "evidence": ["octocat/deploy"],
+    "strength": "strong",             // strong | medium | light (added; absent on typed interests)
+    "kinds": ["manifest", "readme"],  // evidence kinds, strongest first (added)
+    "sources": [{ "repo": "octocat/deploy", "kinds": ["manifest", "readme"] }] // per repo, same order as evidence (added)
+  }],
                                       // CNCF / infra tools from dependency files, manifests, topics, READMEs.
                                       // name: stable slug from the catalog in app/profile/tools.js; label: display name.
-                                      // weight 0..1 (evidence strength: dependency/manifest > topic > README mention),
-                                      // sorted desc, at most 15; evidence: up to 5 public repo full names
-  "topics": ["kubernetes", "gitops"], // GitHub repo topics, lowercased
-  "keywords": ["progressive delivery", "helm"], // from READMEs and descriptions
+                                      // weight 0..1, sorted desc, at most 15; evidence: up to 5 public repo full names
+                                      // (the user's, or public repos they forked, starred or contributed to)
+  "topics": ["kubernetes", "gitops"], // GitHub repo topics, lowercased: own repos first, then repos contributed to
+  "keywords": ["progressive delivery"], // from topics and descriptions; README terms only if in 2+ repos or a title
+  "scan": {                           // what was read (added; GitHub profiles only)
+    "publicRepos": 6, "scanned": 2,   // public repos on the account; repos scanned (= repoCount)
+    "forks": 3, "empty": 1, "archived": 0, // own repos not scanned, by reason
+    "starred": 30, "contributions": 2, // starred repos read; other people's repos pushed to / PR'd / issued in, 90 days
+    "partial": false                  // true when GitHub rate-limited or the call budget ran out part-way
+  },
   "generatedAt": "2026-11-09T21:00:00Z"
 }
 ```
+
+Evidence kinds, strongest first: `dependency` (package manifests, go.mod, Chart.yaml dependencies), `manifest` (Kubernetes apiVersion/kind, kustomization, a tool's config file in the tree), `image` (container image references), `workflow` (GitHub Actions `uses:` and workflow files), `topic` (a topic on the user's own repo), `contribution` (topics, name or description of someone else's repo the user pushed to or opened a PR or issue in during the last 90 days), `implied` (another tool's evidence implies it: Argo CD → GitOps), `fork` (a fork pushed in the last 2 years: topics, name, description), `readme` (a prose mention; lines and list runs naming 4+ catalog tools don't count), `starred` (topics, name or description of a recently starred repo).
+
+A tool's score sums `kindWeight × recency × (1 + ln(1 + occurrences))` over its evidence; recency halves every 12 months since the repo was last pushed (or the contribution happened). Weak kinds are capped per tool (`starred`, `fork`, `contribution`). Scores are normalized to 0..1, then capped by strength: `strong` (any dependency, manifest, image or workflow evidence) up to 1, `medium` (topic, contribution, implied, or two weak kinds) up to 0.7, `light` (README mentions, forks or starred repos only) up to 0.35. A tool seen only in one repo's README is left out. A GitHub profile spends at most 25 API calls with a token (15 without): user, repos, starred, events, a tree and the languages of each scanned repo, up to 5 contributed-to repos; raw file reads don't count against the API rate limit.
 
 Only derived signals are kept. Never store or return code, file contents or the token.
 

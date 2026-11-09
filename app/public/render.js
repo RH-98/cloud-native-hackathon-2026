@@ -67,14 +67,50 @@ export function renderConferenceCards(container, conferences, selectedId) {
 
 let tipCount = 0;
 
+const KIND_TEXT = {
+  dependency: 'dependency', manifest: 'manifest or config file', workflow: 'CI workflow', image: 'container image',
+  topic: 'repo topic', implied: 'implied by a related tool', readme: 'README mention', fork: 'fork',
+  starred: 'starred', contribution: 'recent contribution',
+};
+const STRENGTH_DOTS = { strong: '●●●', medium: '●●○', light: '●○○' };
+
+// "dependency in RH-98/x · README mention in RH-98/y"
+function toolWhy(tool) {
+  const sources = Array.isArray(tool.sources) && tool.sources.length
+    ? tool.sources
+    : (tool.evidence || []).filter(Boolean).map((repo) => ({ repo, kinds: [] }));
+  return sources.slice(0, 4).map((s) => {
+    const kinds = (s.kinds || []).map((k) => KIND_TEXT[k] || k).join(', ');
+    return kinds ? `${kinds} in ${s.repo}` : `seen in ${s.repo}`;
+  }).join(' · ') + (sources.length > 4 ? ` · and ${sources.length - 4} more` : '');
+}
+
 function toolChip(tool) {
-  const evidence = (tool.evidence || []).filter(Boolean);
-  if (!evidence.length) return h('li', { class: 'chip chip--tool' }, tool.name);
+  const name = tool.label || tool.name;
+  const strength = STRENGTH_DOTS[tool.strength]
+    ? [h('span', { class: 'chip__strength', 'aria-hidden': 'true' }, STRENGTH_DOTS[tool.strength]),
+      h('span', { class: 'sr-only' }, ` (${tool.strength} signal)`)]
+    : [];
+  const why = toolWhy(tool);
+  if (!why) return h('li', { class: 'chip chip--tool' }, name, ...strength);
   const id = `tip-${++tipCount}`;
-  const shown = evidence.slice(0, 4).join(', ') + (evidence.length > 4 ? ` and ${evidence.length - 4} more` : '');
   return h('li', { class: 'chip chip--tool chip--has-tip' },
-    h('span', { class: 'chip__label', tabindex: '0', 'aria-describedby': id }, tool.name),
-    h('span', { class: 'tip', role: 'tooltip', id }, `Seen in ${shown}`));
+    h('span', { class: 'chip__label', tabindex: '0', 'aria-describedby': id }, name, ...strength),
+    h('span', { class: 'tip', role: 'tooltip', id }, why));
+}
+
+// "Scanned 2 of 6 public repos (3 forks, 1 empty) · 30 starred · 2 recent contributions"
+function scanLine(profile) {
+  const s = profile.scan;
+  const n = profile.repoCount ?? 0;
+  if (!s) return `scanned ${n} public repo${n === 1 ? '' : 's'}`;
+  const plural = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+  const skipped = [s.forks && plural(s.forks, 'fork'), s.empty && `${s.empty} empty`, s.archived && `${s.archived} archived`]
+    .filter(Boolean);
+  const parts = [`scanned ${s.scanned} of ${plural(s.publicRepos, 'public repo')}${skipped.length ? ` (${skipped.join(', ')})` : ''}`];
+  if (s.starred) parts.push(`${s.starred} starred`);
+  if (s.contributions) parts.push(plural(s.contributions, 'recent contribution'));
+  return parts.join(' · ');
 }
 
 function chips(items, cls = 'chip') {
@@ -99,19 +135,27 @@ export function renderProfile(section, profile, notes = []) {
     isGithub && profile.username
       ? h('p', { class: 'profile__sub' },
         externalLink(`https://github.com/${encodeURIComponent(profile.username)}`, `@${profile.username}`),
-        ` · scanned ${profile.repoCount ?? 0} public repo${profile.repoCount === 1 ? '' : 's'}${blended ? (linkedin ? ', plus skills from a pasted LinkedIn profile' : ', plus the interests you typed') : ''}`)
+        ` · ${scanLine(profile)}${blended ? (linkedin ? ', plus skills from a pasted LinkedIn profile' : ', plus the interests you typed') : ''}`)
       : h('p', { class: 'profile__sub' }, linkedin ? 'From pasted LinkedIn profile' : 'From the interests you typed'));
 
   const blocks = [];
   const tools = profile.tools || [];
   if (isGithub) {
     if (tools.length) {
+      // Strongest first: real usage (dependencies, manifests, workflows,
+      // images) and typed tools, then topics, mentions and starred repos.
+      const sorted = [...tools].sort((a, b) => (b.weight || 0) - (a.weight || 0));
+      const strong = sorted.filter((t) => !t.strength || t.strength === 'strong');
+      const seen = sorted.filter((t) => t.strength && t.strength !== 'strong');
       blocks.push(h('div', { class: 'profile__block' },
         h('h3', {}, 'Tools we spotted'),
         h('p', { class: 'hint' }, blended
-          ? `Focus or hover a tool to see which repos it came from. Tools without repos are ${linkedin ? 'from LinkedIn' : 'ones you typed'}.`
-          : 'Focus or hover a tool to see which repos it came from.'),
-        h('ul', { class: 'chips' }, tools.map(toolChip))));
+          ? `Focus or hover a tool to see why: which kind of evidence, in which repos. Tools without repos are ${linkedin ? 'from LinkedIn' : 'ones you typed'}.`
+          : 'Focus or hover a tool to see why: which kind of evidence, in which repos.'),
+        strong.length ? h('h4', { class: 'profile__group' }, 'Strong signals') : null,
+        strong.length ? h('ul', { class: 'chips' }, strong.map(toolChip)) : null,
+        seen.length ? h('h4', { class: 'profile__group' }, 'Also seen') : null,
+        seen.length ? h('ul', { class: 'chips' }, seen.map(toolChip)) : null));
     }
     const langs = profile.languages || [];
     if (langs.length) {

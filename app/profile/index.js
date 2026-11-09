@@ -2,13 +2,24 @@
 // from typed interests. Only derived signals are kept: languages, topics,
 // tool names, short keywords. Never code, file contents or the token.
 const { createClient, ProfileError, BudgetExhausted, withSpan } = require('./github');
-const { detectTools, matchInterests, label, damping } = require('./tools');
-const { pickFiles, findReadme, parseFile, extractKeywords } = require('./signals');
+const { detectEvidence, detectInterest, matchInterests, label } = require('./tools');
+const { pickFiles, findReadme, parseFile, extractKeywords, readmeHeadings, stripMarkdown } = require('./signals');
+const { ToolScores, blendLanguages, recencyDecay, dedupeKeywords } = require('./score');
 const { languageOf } = require('./languages');
 const { parseLinkedIn, looksLikeLinkedIn, MAX_PASTE } = require('./linkedin');
 
 const MAX_REPOS = 8;
-const MAX_CALLS = 40;
+const MAX_CALLS = 60; // every request, raw files included
+// API calls per profile: user, repos, starred, events, a tree and the
+// languages of each scanned repo, and up to 5 contributed-to repos.
+const MAX_API_CALLS = 25;
+const MAX_API_CALLS_ANON = 15;
+const MAX_FORKS = 10;
+const FORK_DAYS = 2 * 365;
+const MAX_STARRED = 50;
+const CONTRIBUTION_DAYS = 90;
+const MAX_CONTRIBUTIONS = 5;
+const MAX_CONTRIBUTIONS_ANON = 2;
 const CONCURRENCY = 4;
 const MAX_TOOLS = 15;
 const MAX_EVIDENCE = 5;
@@ -51,7 +62,6 @@ const defaultCache = new TtlCache();
 
 // --------------------------------------------------------------- helpers
 
-const round2 = (n) => Math.round(n * 100) / 100;
 
 function normalizeUsername(input) {
   if (typeof input !== 'string') throw new ProfileError('invalid_input', 'The GitHub username must be text');
@@ -152,8 +162,13 @@ function boost(list, typed, makeEntry) {
   const out = (list || []).map((x) => ({ ...x }));
   for (const t of typed || []) {
     const hit = out.find((x) => x.name === t.name);
-    if (hit) hit.weight = Math.max(hit.weight || 0, typedWeight(t));
-    else out.push(makeEntry(t));
+    if (hit) {
+      hit.weight = Math.max(hit.weight || 0, typedWeight(t));
+      // The user said so (typed, or a listed LinkedIn skill; not a prose mention).
+      if (hit.strength && !(t.weight < 1)) hit.strength = 'strong';
+    } else {
+      out.push(makeEntry(t));
+    }
   }
   return out.sort(byWeight);
 }
@@ -183,20 +198,26 @@ function mergeInterests(profile, interestsProfile) {
 
 // --------------------------------------------------------------- github
 
-async function scanRepo(client, repo, state, filesPerRepo) {
-  const [owner, name] = repo.full_name.split('/');
-  const branch = repo.default_branch || 'main';
-  const result = { paths: [], deps: [], manifests: [], images: [], readme: '' };
-  const guard = async (fn) => {
+// Runs one optional fetch: any failure gives null (one repo's missing file
+// never fails the profile), and a rate limit or an empty budget stops every
+// later fetch, leaving a partial profile from what was already read.
+function guarded(state) {
+  return async (fn) => {
     if (state.stop) return null;
     try {
       return await fn();
     } catch (err) {
       if (err instanceof ProfileError && err.code === 'rate_limited') state.stop = true;
       else if (err instanceof BudgetExhausted) state.stop = true;
-      return null; // one repo's missing file never fails the profile
+      return null;
     }
   };
+}
+
+async function scanRepo(client, repo, guard, filesPerRepo) {
+  const [owner, name] = repo.full_name.split('/');
+  const branch = repo.default_branch || 'main';
+  const result = { paths: [], deps: [], manifests: [], images: [], readme: '' };
 
   const tree = await guard(() => client.fetchTree(owner, name, branch));
   if (!tree) return result;
@@ -222,62 +243,96 @@ async function scanRepo(client, repo, state, filesPerRepo) {
   return result;
 }
 
-function aggregate(user, repos, scans) {
-  const toolScores = new Map();
-  const langScores = new Map();
+const lowerTopics = (repo) => (repo.topics || []).map((t) => String(t).toLowerCase());
+const asWords = (topics) => topics.map((t) => t.replace(/-/g, ' ')).join('\n');
+
+// Everything fetched -> { tools, languages, topics, keywords }. Pure.
+// input: { user, repos, scans, languageBytes, forks, starred, contributions, now }
+//   contributions: [{ repo, count, last }] (repo may be a stub with just a name)
+function aggregate({ user, repos, scans, languageBytes = [], forks = [], starred = [], contributions = [], now, maxTools }) {
+  const scores = new ToolScores();
+  const langEntries = [];
   const topicCounts = new Map();
   const docs = [];
 
   repos.forEach((repo, i) => {
-    const recency = 1 - i * 0.05;
+    const recency = recencyDecay(repo.pushed_at, now);
     const scan = scans[i];
-    const topics = (repo.topics || []).map((t) => String(t).toLowerCase());
+    const topics = lowerTopics(repo);
     topics.forEach((t) => topicCounts.set(t, (topicCounts.get(t) || 0) + 1));
-    if (repo.language) langScores.set(repo.language, (langScores.get(repo.language) || 0) + recency);
+    langEntries.push({ bytes: languageBytes[i], primary: repo.language, recency });
 
-    const text = `${repo.description || ''}\n${scan.readme}`.toLowerCase();
-    const found = detectTools({ ...scan, topics, text });
-    for (const [tool, strength] of found) {
-      const entry = toolScores.get(tool) || { score: 0, evidence: [] };
-      entry.score += strength * recency * damping(tool);
-      entry.evidence.push({ repo: repo.full_name, strength });
-      toolScores.set(tool, entry);
+    const text = `${repo.description || ''}\n${stripMarkdown(scan.readme)}`;
+    scores.add(repo.full_name, detectEvidence({ ...scan, topics, text }), recency);
+    if (topics.length) docs.push({ text: asWords(topics), weight: 3, kind: 'topic' });
+    if (repo.description) docs.push({ text: repo.description, weight: 2, kind: 'description' });
+    if (scan.readme) {
+      docs.push({ text: readmeHeadings(scan.readme), weight: 1.5, kind: 'heading' });
+      docs.push({ text: scan.readme, weight: 1, kind: 'readme', repo: repo.full_name });
     }
-    docs.push({ text: [repo.description || '', ...topics.map((t) => t.replace(/-/g, ' '))].join('\n'), weight: 3 });
-    if (scan.readme) docs.push({ text: scan.readme, weight: 1 });
     scan.readme = ''; // README text is only used for derived signals; drop it.
   });
 
-  const maxScore = Math.max(0, ...[...toolScores.values()].map((e) => e.score));
-  const tools = [...toolScores.entries()]
-    .map(([name, e]) => ({
-      name,
-      label: label(name),
-      weight: round2(e.score / maxScore),
-      evidence: e.evidence
-        .sort((a, b) => b.strength - a.strength)
-        .slice(0, MAX_EVIDENCE)
-        .map((x) => x.repo),
-    }))
-    .filter((t) => t.weight > 0)
-    .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
-    .slice(0, MAX_TOOLS);
+  for (const fork of forks) {
+    scores.add(fork.full_name, detectInterest(fork, 'fork'), recencyDecay(fork.pushed_at, now));
+    docs.push({ text: [fork.description || '', asWords(lowerTopics(fork))].join('\n'), weight: 0.5, kind: 'weak' });
+  }
+  // Starred repos come most recently starred first.
+  starred.forEach((repo, i) => {
+    if (repo && repo.full_name && !repo.private) scores.add(repo.full_name, detectInterest(repo, 'starred'), 0.5 ** (i / 25));
+  });
+  for (const { repo, count, last } of contributions) {
+    const found = detectInterest(repo, 'contribution');
+    for (const kinds of found.values()) kinds.set('contribution', count);
+    const recency = recencyDecay(last, now);
+    scores.add(repo.full_name, found, recency);
+    if (repo.language) langEntries.push({ bytes: null, primary: repo.language, recency, weight: 0.3 });
+    for (const t of lowerTopics(repo)) if (!topicCounts.has(t)) topicCounts.set(t, 0.5);
+    docs.push({ text: [repo.description || '', asWords(lowerTopics(repo))].join('\n'), weight: 1, kind: 'weak' });
+  }
 
-  const langTotal = [...langScores.values()].reduce((a, b) => a + b, 0);
-  const languages = [...langScores.entries()]
-    .map(([name, s]) => ({ name, weight: round2(s / langTotal) }))
-    .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
-    .slice(0, 6);
-
+  const tools = scores.rank({ max: maxTools || MAX_TOOLS, maxEvidence: MAX_EVIDENCE });
+  const languages = blendLanguages(langEntries);
   const topics = [...topicCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 20)
     .map(([t]) => t);
 
-  const exclude = [user.login, ...repos.map((r) => r.name)].map((s) => String(s).toLowerCase());
-  const keywords = extractKeywords(docs, { max: 10, exclude });
+  const exclude = [user.login, ...repos.map((r) => r.name), ...forks.map((r) => r.name)].map((s) =>
+    String(s).toLowerCase(),
+  );
+  const keywords = dedupeKeywords(extractKeywords(docs, { max: 14, exclude }), tools, languages).slice(0, 10);
 
   return { tools, languages, topics, keywords };
+}
+
+const CONTRIBUTION_EVENTS = {
+  PushEvent: () => true,
+  PullRequestEvent: (p) => p && p.action === 'opened',
+  IssuesEvent: (p) => p && p.action === 'opened',
+};
+
+// Public events -> other people's repos the user pushed to or opened a PR or
+// issue in, in the last 90 days, most active first.
+function contributedRepos(events, login, now, max) {
+  const since = now - CONTRIBUTION_DAYS * 24 * 60 * 60 * 1000;
+  const me = String(login).toLowerCase();
+  const byRepo = new Map();
+  for (const ev of events || []) {
+    const name = ev && ev.repo && ev.repo.name;
+    const ok = ev && Object.hasOwn(CONTRIBUTION_EVENTS, ev.type) && CONTRIBUTION_EVENTS[ev.type](ev.payload);
+    if (!ok || typeof name !== 'string' || !name.includes('/') || ev.public === false) continue;
+    if (name.split('/')[0].toLowerCase() === me) continue;
+    const at = Date.parse(ev.created_at);
+    if (!Number.isFinite(at) || at < since) continue;
+    const c = byRepo.get(name) || { name, count: 0, last: ev.created_at };
+    c.count += 1;
+    if (at > Date.parse(c.last)) c.last = ev.created_at;
+    byRepo.set(name, c);
+  }
+  return [...byRepo.values()]
+    .sort((a, b) => b.count - a.count || b.last.localeCompare(a.last) || a.name.localeCompare(b.name))
+    .slice(0, max);
 }
 
 async function fromGithub(username, deps, span) {
@@ -289,11 +344,15 @@ async function fromGithub(username, deps, span) {
   if (cached) return structuredClone(cached);
 
   const maxCalls = deps.maxCalls || MAX_CALLS;
+  const token = deps.token !== undefined ? deps.token : process.env.GITHUB_TOKEN;
+  // Without a token GitHub allows 60 API calls an hour, so spend fewer.
+  const maxApiCalls = deps.maxApiCalls || (token ? MAX_API_CALLS : MAX_API_CALLS_ANON);
   const client = createClient({
     fetch: deps.fetch || globalThis.fetch,
-    token: deps.token !== undefined ? deps.token : process.env.GITHUB_TOKEN,
+    token,
     timeoutMs: deps.timeoutMs || 5000,
     maxCalls,
+    maxApiCalls,
   });
 
   let user;
@@ -306,35 +365,94 @@ async function fromGithub(username, deps, span) {
     throw err;
   }
   const all = await client.fetchRepos(username);
-  const repos = all
-    .filter((r) => r && !r.fork && !r.archived && !r.private && r.size !== 0 && r.full_name)
-    .sort((a, b) => String(b.pushed_at || '').localeCompare(String(a.pushed_at || '')))
+  const login = user.login || username;
+  const byPushed = (a, b) => String(b.pushed_at || '').localeCompare(String(a.pushed_at || ''));
+  const mine = all.filter((r) => r && !r.private && typeof r.full_name === 'string');
+  const repos = mine
+    .filter((r) => !r.fork && !r.archived && r.size !== 0)
+    .sort(byPushed)
     .slice(0, deps.maxRepos || MAX_REPOS);
+  const forkSince = now - FORK_DAYS * 24 * 60 * 60 * 1000;
+  const forks = mine
+    .filter((r) => r.fork && Date.parse(r.pushed_at) >= forkSince)
+    .sort(byPushed)
+    .slice(0, MAX_FORKS);
 
-  // Share what's left of the call budget fairly: one tree per repo, then
-  // README + files from what remains (at most 5 per repo).
-  const n = repos.length || 1;
-  const filesPerRepo = Math.max(1, Math.min(5, Math.floor((maxCalls - client.calls - repos.length) / n)));
   const state = { stop: false };
+  const guard = guarded(state);
+
+  // Interest signals first (two calls), then one tree per repo, then
+  // languages and contributed-to repos with whatever API budget is left.
+  const [starredRaw, events] = await Promise.all([
+    guard(() => client.fetchStarred(login, MAX_STARRED)),
+    guard(() => client.fetchEvents(login)),
+  ]);
+  const starred = (starredRaw || []).filter((r) => r && typeof r.full_name === 'string' && !r.private);
+
+  // Raw files don't count against the API rate limit; share that budget.
+  const n = repos.length || 1;
+  const filesPerRepo = Math.max(1, Math.min(5, Math.floor((maxCalls - maxApiCalls) / n)));
   const scans = await mapLimit(repos, deps.concurrency || CONCURRENCY, (repo) =>
-    scanRepo(client, repo, state, filesPerRepo),
+    scanRepo(client, repo, guard, filesPerRepo),
   );
 
-  const { tools, languages, topics, keywords } = aggregate(user, repos, scans);
+  const contributed = contributedRepos(events, login, now, token ? MAX_CONTRIBUTIONS : MAX_CONTRIBUTIONS_ANON);
+  const extra = [
+    ...contributed.map((c) => ({ type: 'repo', c })),
+    ...repos.map((repo, i) => ({ type: 'languages', repo, i })),
+  ];
+  const languageBytes = new Array(repos.length).fill(null);
+  const contributions = contributed.map((c) => ({
+    repo: { full_name: c.name, name: c.name.split('/')[1], topics: [] },
+    count: c.count,
+    last: c.last,
+  }));
+  // Plan the optional calls against what is left of the budget, so a planned
+  // limit never trips BudgetExhausted and marks the profile partial.
+  const planned = extra.slice(0, client.apiCallsLeft);
+  await mapLimit(planned, deps.concurrency || CONCURRENCY, async (job) => {
+    if (job.type === 'languages') {
+      const [owner, name] = job.repo.full_name.split('/');
+      languageBytes[job.i] = await guard(() => client.fetchLanguages(owner, name));
+    } else {
+      const [owner, name] = job.c.name.split('/');
+      const repo = await guard(() => client.fetchRepo(owner, name));
+      const slot = contributions.find((x) => x.repo.full_name === job.c.name);
+      if (repo && !repo.private && typeof repo.full_name === 'string') slot.repo = repo;
+    }
+  });
+
+  const { tools, languages, topics, keywords } = aggregate({
+    user, repos, scans, languageBytes, forks, starred, contributions, now, maxTools: deps.maxTools,
+  });
+  const scan = {
+    publicRepos: Number.isFinite(user.public_repos) ? user.public_repos : mine.length,
+    scanned: repos.length,
+    forks: mine.filter((r) => r.fork).length,
+    empty: mine.filter((r) => !r.fork && r.size === 0).length,
+    archived: mine.filter((r) => !r.fork && r.archived && r.size !== 0).length,
+    starred: starred.length,
+    contributions: contributions.length,
+    partial: state.stop,
+  };
   const profile = {
     source: 'github',
-    username: user.login || username,
-    displayName: user.name || user.login || username,
+    username: login,
+    displayName: user.name || login,
     avatarUrl: user.avatar_url || null,
     repoCount: repos.length,
     languages,
     tools,
     topics,
     keywords,
+    scan,
     generatedAt: new Date(now).toISOString(),
   };
   span.setAttribute('github.repo_count', repos.length);
   span.setAttribute('github.calls', client.calls);
+  span.setAttribute('github.api_calls', client.apiCalls);
+  span.setAttribute('github.starred_count', starred.length);
+  span.setAttribute('github.contribution_count', contributions.length);
   span.setAttribute('profile.partial', state.stop);
   cache.set(key, profile, now, state.stop ? PARTIAL_TTL_MS : TTL_MS);
   return structuredClone(profile);
@@ -346,7 +464,7 @@ async function fromGithub(username, deps, span) {
 // With both, the GitHub profile is built and the interests are blended in
 // (mergeInterests). GitHub errors are thrown as usual; the caller decides
 // whether to fall back to the interests alone.
-// deps (for tests): { fetch, now, cache, token, maxRepos, maxCalls, concurrency, timeoutMs }
+// deps (for tests): { fetch, now, cache, token, maxRepos, maxTools, maxCalls, maxApiCalls, concurrency, timeoutMs }
 async function buildProfile({ github, interests } = {}, deps = {}) {
   const hasGithub = typeof github === 'string' ? github.trim() !== '' : github != null;
   const hasInterests = interests != null && interests !== '';
