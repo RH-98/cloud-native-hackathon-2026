@@ -227,12 +227,14 @@ function showPlan({ focusKey } = {}) {
 
 // Only the latest plan request may render, whatever order responses arrive in.
 let planRequestSeq = 0;
-async function loadPlan(body, { message, done, focusKey, fresh = false }) {
+async function loadPlan(body, { message, done, focusKey, fresh = false, checkedAt }) {
   const mine = ++planRequestSeq;
   clearError();
   setLoading(true, message);
   try {
-    const { profile, plan } = await requestPlan(planRequest(body, state.pinned, state.skipped));
+    const request = planRequest(body, state.pinned, state.skipped);
+    if (checkedAt) request.checkedAt = checkedAt;
+    const { profile, plan } = await requestPlan(request);
     if (mine !== planRequestSeq) return false;
     state.request = body;
     state.profile = profile;

@@ -144,6 +144,43 @@ test('overlay: the latest change per session wins; cancelled sessions are droppe
   assert.equal(overlaySnapshot(snapshot, []), snapshot);
 });
 
+test('overlay: a later watcher check invalidates cached changes', async () => {
+  _cache.clear();
+  const snapshot = { conference: { id: 'kubecon-na-2026' }, sessions: [session(1)] };
+  let changes = [{
+    sessionId: 'kubecon-na-2026:1',
+    type: 'time_changed',
+    detectedAt: '2026-11-09T20:00:00.000Z',
+    after: { start: '2026-11-10T13:00:00-07:00' },
+  }];
+  let checkedAt = '2026-11-09T20:00:00.000Z';
+  let searches = 0;
+  const client = {
+    async search() {
+      searches += 1;
+      return { hits: { hits: changes.map((change) => ({ _source: change })) } };
+    },
+    async get() {
+      return { _source: { lastCheckedAt: checkedAt } };
+    },
+  };
+
+  const cached = await liveSnapshot(snapshot, client, { now: 1 });
+  assert.equal(cached.sessions[0].start, '2026-11-10T13:00:00-07:00');
+
+  changes = [{
+    sessionId: 'kubecon-na-2026:1',
+    type: 'time_changed',
+    detectedAt: '2026-11-09T21:00:00.000Z',
+    after: { start: '2026-11-10T14:00:00-07:00' },
+  }];
+  checkedAt = '2026-11-09T21:00:00.000Z';
+  const refreshed = await liveSnapshot(snapshot, client, { now: 2, checkedAt });
+  assert.equal(refreshed.sessions[0].start, '2026-11-10T14:00:00-07:00');
+  assert.equal(searches, 2);
+  _cache.clear();
+});
+
 test('overlay: liveSnapshot falls back to the snapshot when Elasticsearch fails', async () => {
   _cache.clear();
   const snapshot = { conference: { id: 'kubecon-na-2026' }, sessions: [session(1)] };

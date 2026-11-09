@@ -5,7 +5,7 @@
 const es = require('../search/elasticsearch');
 
 const CACHE_MS = 30_000;
-const cache = new Map(); // conferenceId -> { at, changes }
+const cache = new Map(); // conferenceId -> { at, changes, checkedAt }
 
 // The most recent change per session (changes in any order).
 function latestBySession(changes) {
@@ -40,16 +40,16 @@ function overlaySnapshot(snapshot, changes) {
 
 // The snapshot with live changes applied. Never fails: on any Elasticsearch
 // error it returns the snapshot unchanged (the es.search_changes span records it).
-async function liveSnapshot(snapshot, client, { now = Date.now() } = {}) {
+async function liveSnapshot(snapshot, client, { now = Date.now(), checkedAt } = {}) {
   const conferenceId = snapshot && snapshot.conference && snapshot.conference.id;
   if (!client || !conferenceId) return snapshot;
   let entry = cache.get(conferenceId);
-  if (!entry || now - entry.at > CACHE_MS) {
+  if (!entry || now - entry.at > CACHE_MS || (checkedAt && entry.checkedAt && checkedAt > entry.checkedAt)) {
     try {
-      const { changes } = await es.searchChanges(client, { conferenceId, size: 1000 });
-      entry = { at: now, changes };
+      const { changes, checkedAt: latestCheckedAt } = await es.searchChanges(client, { conferenceId, size: 1000 });
+      entry = { at: now, changes, checkedAt: latestCheckedAt };
     } catch {
-      entry = { at: now, changes: entry ? entry.changes : [] };
+      entry = { at: now, changes: entry ? entry.changes : [], checkedAt: entry && entry.checkedAt };
     }
     cache.set(conferenceId, entry);
   }
