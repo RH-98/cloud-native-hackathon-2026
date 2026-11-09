@@ -29,20 +29,22 @@ export function loadInputs(storage = globalThis.localStorage) {
 // The interests box also takes a pasted LinkedIn profile (up to 10,000 characters).
 export const MAX_INTERESTS = 10000;
 
-// Long or many-line text is a pasted profile: it is sent once to build the
-// plan and never kept (not in localStorage, not in a saved account plan).
+// Text over the server's 500-character threshold is a pasted profile: it is
+// sent once to build the plan and never kept (not in localStorage, not in a
+// saved account plan).
 export function isPastedText(text) {
-  return typeof text === 'string' && (text.length > 500 || text.split('\n').length > 4);
+  return typeof text === 'string' && text.length > 500;
 }
 
 // The derived signals as a short interests line, to keep in place of a paste.
 export function derivedInterests(profile) {
   if (!profile) return '';
+  const blended = profile.source === 'github+interests';
+  const tools = (profile.tools || []).filter((t) => !blended || !(t.evidence || []).length);
   const words = [
-    ...(profile.tools || []).map((t) => t.label || t.name),
-    ...(profile.languages || []).map((l) => l.name),
-    ...(profile.topics || []),
-    ...(profile.keywords || []),
+    ...tools.map((t) => t.label || t.name),
+    ...(blended ? [] : (profile.languages || []).map((l) => l.name)),
+    ...(blended ? [] : [...(profile.topics || []), ...(profile.keywords || [])]),
   ].filter((w) => typeof w === 'string' && w);
   let out = '';
   for (const w of [...new Set(words)]) {

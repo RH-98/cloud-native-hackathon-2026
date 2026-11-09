@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applySnapshot, isOwnGithubProfile, snapshotState } from '../public/account.js';
+import { derivedInterests, isPastedText, persistableRequest, saveInputs } from '../public/state.js';
 
 const sample = () => ({
   request: { conferenceId: 'kubecon-na-2026', github: 'octocat', options: {} },
@@ -37,4 +38,34 @@ test('only your own GitHub profile counts as yours', () => {
   assert.equal(isOwnGithubProfile({ source: 'github+interests', username: 'torvalds' }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'interests', username: null }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'octocat' }, null), false);
+});
+
+test('saved blended profiles retain typed tools without copying GitHub-derived signals', () => {
+  const s = sample();
+  s.request = { ...s.request, interests: 'pasted profile '.repeat(40) };
+  s.profile = {
+    source: 'github+interests',
+    tools: [
+      { name: 'github-tool', label: 'GitHub tool', evidence: [{ repo: 'octocat/project' }] },
+      { name: 'typed-tool', label: 'Typed tool', evidence: [] },
+    ],
+    languages: [{ name: 'Go' }],
+    topics: ['GitHub topic', 'typed topic'],
+    keywords: ['GitHub keyword', 'typed keyword'],
+  };
+  const saved = snapshotState(s);
+
+  assert.equal(saved.request.interests, 'Typed tool');
+  assert.equal(derivedInterests({ source: 'github', tools: [], languages: [{ name: 'Go' }], topics: ['cloud'], keywords: ['operators'] }), 'Go, cloud, operators');
+});
+
+test('short multi-line typed interests are preserved in local and account saves', () => {
+  const interests = 'Kubernetes\nGitOps\nObservability\nPrometheus\nOpenTelemetry';
+  let saved;
+  assert.equal(isPastedText(interests), false);
+  assert.equal(isPastedText('x'.repeat(500)), false);
+  assert.equal(isPastedText('x'.repeat(501)), true);
+  assert.equal(persistableRequest({ interests }, null).interests, interests);
+  saveInputs({ interests }, { setItem: (_key, value) => { saved = JSON.parse(value); } });
+  assert.equal(saved.interests, interests);
 });
