@@ -1,0 +1,87 @@
+Skip to main content
+Home
+My Network
+Jobs
+Messaging
+Notifications
+Me
+For Business
+Rowan Ellery
+Rowan Ellery
+· 2nd
+Site Reliability Engineer @ Brightpath Health · Observability, incident response, Rust
+Seattle, Washington, United States
+Contact info
+2,341 followers
+500+ connections
+Sam Ortiz, Lee Park, and 12 other mutual connections
+Connect
+Message
+More
+Open to work
+Site Reliability Engineer roles
+Show details
+
+Activity
+Activity
+2,341 followers
+Rowan Ellery reposted this
+Excited to share our Kafka migration story! Big thanks to the Snowflake and Datadog teams 🎉 https://example.com/blog/kafka-story
+128 reactions
+14 comments
+Like
+Comment
+Repost
+Send
+Show all posts
+
+About
+About
+On-call veteran. I care about SLOs, distributed tracing with Jaeger and Grafana dashboards that tell you what is wrong, not that something is wrong.
+
+Experience
+Experience
+Site Reliability Engineer
+Brightpath Health · Full-time
+Mar 2021 - Present · 3 yrs 9 mos
+Seattle, Washington, United States · Remote
+Run the Prometheus and Thanos stack for 30 clusters; cut paging noise by half.
+Software Engineer
+Pinecrest Media
+2017 - 2021 · 4 yrs
+
+Skills
+Skills
+Site Reliability Engineering
+Rust (Programming Language)
+Prometheus
+Linux
+Microsoft Office
+Show all 18 skills
+
+Interests
+Top Voices
+Companies
+Groups
+Snowflake
+1,204,553 followers
+Follow
+Kafka Summit
+Follow
+
+People also viewed
+Jamie Calder
+· 3rd
+Machine Learning Engineer at Snowflake | Ray, KServe, vLLM
+Connect
+Priya Nandakumar
+· 2nd
+Security Engineer | Falco, OPA, Vault
+Connect
+Show all
+
+People you may know
+From Rowan's industry
+Morgan Hale
+Data Engineer | Spark, Airflow, Kafka
+Connect

@@ -102,7 +102,7 @@ test('POST /api/plan validates input', async (t) => {
     { conferenceId: 'Bad Id!', github: 'octocat' },
     { conferenceId: 'kubecon-na-2026', github: '-octocat' },
     { conferenceId: 'kubecon-na-2026', github: 'a'.repeat(40) },
-    { conferenceId: 'kubecon-na-2026', interests: 'x'.repeat(501) },
+    { conferenceId: 'kubecon-na-2026', interests: 'x'.repeat(10001) }, // over the pasted-profile limit
     { conferenceId: 'kubecon-na-2026', interests: '   ' },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: [] },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: { days: ['tomorrow'] } },
@@ -123,7 +123,7 @@ test('POST /api/plan validates input', async (t) => {
   assert.equal(notJson.status, 400);
   const wrongType = await postPlan(app.base, '{}', { 'content-type': 'text/plain' });
   assert.equal(wrongType.status, 415);
-  const tooBig = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', interests: 'x', pad: 'y'.repeat(17 * 1024) });
+  const tooBig = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', interests: 'x', pad: 'y'.repeat(33 * 1024) });
   assert.equal(tooBig.status, 413);
   const get = await fetch(`${app.base}/api/plan`);
   assert.equal(get.status, 405);

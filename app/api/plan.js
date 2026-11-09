@@ -10,6 +10,10 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_ID = /^[a-z0-9][a-z0-9-]{0,63}:[A-Za-z0-9_.-]{1,64}$/;
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Any Level'];
 const MAX_INTERESTS = 500;
+// A pasted LinkedIn profile (docs/CONTRACTS.md) may be longer than typed interests.
+const MAX_PASTE = 10000;
+// 10,000 characters can be ~30 KB of UTF-8; the rest of the body is small.
+const MAX_BODY = 32 * 1024;
 const MAX_IDS = 100;
 
 // Error codes the profile and planner throw on purpose, and the status each maps to.
@@ -81,7 +85,9 @@ function validatePlanRequest(body) {
     if (typeof interests !== 'string') throw bad('interests must be text');
     const text = interests.trim();
     if (!text) throw bad('Tell us at least one interest');
-    if (text.length > MAX_INTERESTS) throw bad(`Keep your interests under ${MAX_INTERESTS} characters`);
+    if (text.length > MAX_PASTE) {
+      throw bad(`Keep your interests under ${MAX_INTERESTS} characters, or a pasted profile under 10,000`);
+    }
     out.interests = text;
   }
   return out;
@@ -133,7 +139,7 @@ function createPlanHandler(deps) {
   return async function handlePlan(req, res) {
     const span = trace.getActiveSpan();
     try {
-      const body = await readJsonBody(req);
+      const body = await readJsonBody(req, MAX_BODY);
       const input = validatePlanRequest(body);
       span?.setAttributes({
         'plan.source': planSource(input),

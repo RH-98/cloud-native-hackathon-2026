@@ -167,7 +167,7 @@ test('interests: tools inside longer phrases, longest alias first', () => {
   assert.deepEqual(matchInterests('rust, sailing').rest, ['rust', 'sailing']);
 });
 
-test('interests: over 500 characters or empty is invalid_input', async () => {
+test('interests: over 500 characters with no skills in them, or empty, is invalid_input', async () => {
   await assert.rejects(buildProfile({ interests: 'x'.repeat(501) }), { name: 'ProfileError', code: 'invalid_input' });
   await assert.rejects(buildProfile({}), { code: 'invalid_input' });
   await assert.rejects(buildProfile({ github: 'not a user!' }, { fetch: () => assert.fail('no call') }), {
