@@ -1,3 +1,13 @@
+# Conference day planner (Cloud Native Hackathon 2026)
+
+A personal day plan for KubeCon, built from your GitHub repos, with backups for every time slot. This README will grow into the project's setup guide; the Radar starter notes follow below.
+
+## AI usage
+
+This project is built with AI coding assistance: Claude Code (Anthropic) helps write code, configuration and docs, and Gitar reviews pull requests and fixes CI failures. Every change is reviewed and understood by the team before it merges.
+
+---
+
 # Radar AI SRE track starter: Cloud Native Hackathon
 
 Start here if your team has its own cluster at the hackathon: a virtual Kubernetes cluster (vcluster) where you're cluster-admin. You get a small app that `git push` deploys through Argo CD, and notes your coding agent reads so it ships through [Radar](https://radarhq.io)'s MCP server. Below is a menu of what Radar can do: pick what your project needs.
