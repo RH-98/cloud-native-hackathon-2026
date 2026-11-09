@@ -31,5 +31,25 @@ test('a saved account plan keeps the derived signals, not the paste', () => {
   assert.equal(snap.request.interests, 'Kubernetes, Go, platform engineering, aws');
   assert.ok(!JSON.stringify(snap).includes('Avery'));
   const typed = { conferenceId: 'kubecon-na-2026', interests: 'rust' };
-  assert.equal(persistableRequest(typed, profile), typed);
+  assert.equal(persistableRequest(typed, { source: 'interests', tools: [] }), typed);
+});
+
+test('short typed lists on several lines are kept; a short LinkedIn paste is not', () => {
+  const typed = 'argo\notel\nrust\nhelm\nchess';
+  assert.equal(isPastedText(typed), false);
+  assert.equal(persistableRequest({ interests: typed }, { source: 'interests', tools: [] }).interests, typed);
+  assert.equal(isPastedText('Avery Quill\nPlatform Engineer\n500+ connections'), true);
+  // The server said it was a paste: keep only the derived signals, even if short.
+  assert.equal(persistableRequest({ interests: 'Platform Engineer | Kubernetes' }, profile).interests,
+    'Kubernetes, Go, platform engineering, aws');
+});
+
+test('a blended profile saves only the pasted tools, not the GitHub ones', () => {
+  const blended = {
+    source: 'github+interests', pastedFrom: 'linkedin', username: 'octo-dev',
+    tools: [{ name: 'crossplane', label: 'Crossplane', weight: 0.2, evidence: ['octo-dev/infra'] },
+      { name: 'terraform', label: 'Terraform', weight: 0.9, evidence: [] }],
+    languages: [{ name: 'TypeScript', weight: 0.7 }], topics: ['gitops'], keywords: ['monorepo'],
+  };
+  assert.deepEqual(persistableRequest({ github: 'octo-dev', interests: paste }, blended), { github: 'octo-dev', interests: 'Terraform' });
 });

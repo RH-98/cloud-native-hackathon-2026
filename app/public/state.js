@@ -29,20 +29,27 @@ export function loadInputs(storage = globalThis.localStorage) {
 // The interests box also takes a pasted LinkedIn profile (up to 10,000 characters).
 export const MAX_INTERESTS = 10000;
 
-// Long or many-line text is a pasted profile: it is sent once to build the
-// plan and never kept (not in localStorage, not in a saved account plan).
+// Text over 500 characters, or with LinkedIn's headers and counters, is a
+// pasted profile (roughly the server's rule in app/profile/linkedin.js): it is
+// sent once to build the plan and never kept (not in localStorage, not in a
+// saved account plan). Short typed lists, even on several lines, are kept.
+const LINKEDIN_HINTS = /^(about|experience|skills|education|activity|licenses & certifications)$|\b\d[\d,]*\+?\s*(connections|followers)\b|\bendorsed by\b|\bendorsements\b/im;
 export function isPastedText(text) {
-  return typeof text === 'string' && (text.length > 500 || text.split('\n').length > 4);
+  return typeof text === 'string' && (text.length > 500 || (text.includes('\n') && LINKEDIN_HINTS.test(text)));
 }
 
-// The derived signals as a short interests line, to keep in place of a paste.
+// The pasted signals as a short interests line, to keep in place of a paste.
+// In a blended profile only tools without repo evidence came from the paste:
+// GitHub's tools, languages and words are left out so a replan doesn't treat
+// them as typed (and raise them to 0.9).
 export function derivedInterests(profile) {
   if (!profile) return '';
+  const blended = profile.source === 'github+interests';
+  const tools = (profile.tools || []).filter((t) => !blended || !(t.evidence || []).length);
   const words = [
-    ...(profile.tools || []).map((t) => t.label || t.name),
-    ...(profile.languages || []).map((l) => l.name),
-    ...(profile.topics || []),
-    ...(profile.keywords || []),
+    ...tools.map((t) => t.label || t.name),
+    ...(blended ? [] : (profile.languages || []).map((l) => l.name)),
+    ...(blended ? [] : [...(profile.topics || []), ...(profile.keywords || [])]),
   ].filter((w) => typeof w === 'string' && w);
   let out = '';
   for (const w of [...new Set(words)]) {
@@ -53,9 +60,11 @@ export function derivedInterests(profile) {
   return out;
 }
 
-// A request safe to persist: a pasted profile is replaced by what we derived from it.
+// A request safe to persist: a pasted profile is replaced by what we derived
+// from it. The server's profile.pastedFrom is the authoritative signal.
 export function persistableRequest(request, profile) {
-  if (!request || !isPastedText(request.interests)) return request;
+  if (!request || typeof request.interests !== 'string') return request;
+  if (profile?.pastedFrom !== 'linkedin' && !isPastedText(request.interests)) return request;
   const interests = derivedInterests(profile);
   const { interests: _dropped, ...rest } = request;
   return interests ? { ...rest, interests } : rest;
