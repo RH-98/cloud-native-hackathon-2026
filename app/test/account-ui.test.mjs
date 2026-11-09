@@ -1,7 +1,7 @@
 // The browser account module's pure helpers: what gets saved and restored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySnapshot, isOwnGithubProfile, snapshotState } from '../public/account.js';
+import { applySnapshot, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
 import { derivedInterests, isPastedText, persistableRequest, saveInputs } from '../public/state.js';
 
 const sample = () => ({
@@ -68,4 +68,20 @@ test('short multi-line typed interests are preserved in local and account saves'
   assert.equal(persistableRequest({ interests }, null).interests, interests);
   saveInputs({ interests }, { setItem: (_key, value) => { saved = JSON.parse(value); } });
   assert.equal(saved.interests, interests);
+});
+
+test('signing in fills an empty username field but keeps what was typed', () => {
+  assert.equal(prefillGithub('', 'octocat'), 'octocat');
+  assert.equal(prefillGithub('   ', 'octocat'), 'octocat');
+  assert.equal(prefillGithub(undefined, 'octocat'), 'octocat');
+  assert.equal(prefillGithub('torvalds', 'octocat'), 'torvalds');
+  assert.equal(prefillGithub(' torvalds ', 'octocat'), 'torvalds');
+  assert.equal(prefillGithub('', null), '');
+});
+
+test('the "Use @login" button hides only for your own login', () => {
+  assert.equal(isSameLogin('OctoCat', 'octocat'), true);
+  assert.equal(isSameLogin(' @octocat ', 'octocat'), true);
+  assert.equal(isSameLogin('torvalds', 'octocat'), false);
+  assert.equal(isSameLogin('', 'octocat'), false);
 });
