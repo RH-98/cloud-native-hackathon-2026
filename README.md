@@ -31,7 +31,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP over HTTP |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Secret `app-credentials` | Dash0 auth header |
-| `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces, metrics and logs |
+| `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces and metrics; logs explicitly emitted through the OpenTelemetry Logs API are exported (plain `console.log` is not instrumented) |
 | `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans |
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 

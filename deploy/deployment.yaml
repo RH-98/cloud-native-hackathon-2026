@@ -25,7 +25,7 @@ spec:
           env:
             - name: TEAM_NAME
               value: "ryan-hilton-real"
-            # OpenTelemetry: traces, metrics and logs go straight to Dash0.
+            # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS
               value: "--require @opentelemetry/auto-instrumentations-node/register"

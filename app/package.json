@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.10.0",
     "@opentelemetry/auto-instrumentations-node": "^0.83.0"
   }
 }
