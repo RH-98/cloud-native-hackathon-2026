@@ -13,11 +13,14 @@ Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before 
 | Key | Used for |
 |---|---|
 | `otel-exporter-otlp-headers` | Dash0 ingest auth, in the form `Authorization=Bearer <dash0-auth-token>` |
+| `elasticsearch-api-key` | Elasticsearch API key (encoded form) with create, write and read access to the `conference-*` indices |
 
 ```bash
 read -rs DASH0_TOKEN
+read -rs ES_API_KEY
 kubectl -n team-ryan-hilton-real create secret generic app-credentials \
-  --from-literal=otel-exporter-otlp-headers="Authorization=Bearer $DASH0_TOKEN"
+  --from-literal=otel-exporter-otlp-headers="Authorization=Bearer $DASH0_TOKEN" \
+  --from-literal=elasticsearch-api-key="$ES_API_KEY"
 ```
 
 ### Environment variables (set in `deploy/deployment.yaml`)
@@ -46,6 +49,34 @@ The planner can hold any number of conferences, all in one format: [`app/data/co
 | KubeCon + CloudNativeCon NA 2026 | `kubecon-na-2026.json` | Official [schedule](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/program/schedule/) and [sponsor list](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/sponsor-list/) pages | 600 sessions (including breaks and meals) and 244 sponsors with tiers |
 
 To refresh the KubeCon snapshot: `cd app && npm run import:kubecon`. Session content belongs to the Linux Foundation and the speakers. We use it only to help attendees plan, and link back to each session's official page.
+
+### Loading into Elasticsearch
+
+Elasticsearch (Serverless) is the planner's data layer. All index definitions and queries live in [`app/search/elasticsearch.js`](app/search/elasticsearch.js):
+
+| Index | Contents |
+|---|---|
+| `conference-sessions` | Sessions with keyword fields (track, level, tags, room, times) and a `semantic` field: title + description embedded with Elastic's built-in Jina model (`.jina-embeddings-v5-text-small`), for meaning-based matching |
+| `conference-sponsors` | Sponsors with tiers |
+| `conference-meta` | One record per conference, including which snapshot is loaded |
+
+The loader creates any missing indices, then indexes every snapshot in `app/data/conferences/`. It skips a conference whose snapshot is already loaded, unless you pass `--force`. It runs as a one-off Kubernetes Job from [`jobs/load-elasticsearch.yaml`](jobs/load-elasticsearch.yaml), which isn't managed by Argo CD:
+
+```bash
+kubectl create -f jobs/load-elasticsearch.yaml
+```
+
+Or run it locally:
+
+```bash
+cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:es
+```
+
+| Variable | Value / source | Purpose |
+|---|---|---|
+| `ELASTICSEARCH_URL` | `https://my-vectordb-project-ebb49c.es.us-east4.gcp.elastic.cloud:443` (set in the Job) | Elasticsearch endpoint |
+| `ELASTICSEARCH_API_KEY` | Secret `app-credentials`, key `elasticsearch-api-key` | Elasticsearch auth |
+| `OTEL_SERVICE_NAME` | `conference-loader` | The loader's traces show in Dash0 under this name |
 
 ## AI usage
 
