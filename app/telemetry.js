@@ -35,6 +35,19 @@ function isProbe(req) {
   return PROBE_PATHS.has(path);
 }
 
+// Outbound requests made with a user's GitHub App token for their private
+// repos carry this header. The automatic HTTP client spans would record the
+// full URL (owner/repo/path), so they are skipped; the app's own named spans
+// (github.fetch_tree, github.fetch_file, github.app_list_repos) still cover
+// these calls without URLs.
+const PRIVATE_HEADER = 'x-switchback-private';
+
+function isPrivateRequest(request) {
+  const headers = request && request.headers;
+  const text = Array.isArray(headers) ? headers.map(String).join('\n') : String(headers || '');
+  return text.toLowerCase().includes(PRIVATE_HEADER);
+}
+
 function startTelemetry() {
   const { diag, DiagConsoleLogger, DiagLogLevel } = require('@opentelemetry/api');
   const { NodeSDK } = require('@opentelemetry/sdk-node');
@@ -56,6 +69,7 @@ function startTelemetry() {
   const instrumentations = getNodeAutoInstrumentations({
     '@opentelemetry/instrumentation-http': { ignoreIncomingRequestHook: isProbe },
     '@opentelemetry/instrumentation-fs': { enabled: false },
+    '@opentelemetry/instrumentation-undici': { ignoreRequestHook: isPrivateRequest },
   });
 
   // Detected attributes (OTEL_RESOURCE_ATTRIBUTES included) are merged on
@@ -90,6 +104,8 @@ function startTelemetry() {
   process.once('SIGTERM', shutdown);
   process.once('beforeExit', shutdown);
 }
+
+module.exports = { isPrivateRequest, PRIVATE_HEADER };
 
 if (OTEL_TARGET_VARS.some((name) => process.env[name])) {
   startTelemetry();

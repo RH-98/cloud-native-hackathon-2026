@@ -137,7 +137,8 @@ export function renderProfile(section, profile, notes = []) {
     isGithub && profile.username
       ? h('p', { class: 'profile__sub' },
         externalLink(`https://github.com/${encodeURIComponent(profile.username)}`, `@${profile.username}`),
-        ` · ${scanLine(profile)}${blended ? (linkedin ? ', plus skills from a pasted LinkedIn profile' : ', plus the interests you typed') : ''}`)
+        ` · ${scanLine(profile)}${blended ? (linkedin ? ', plus skills from a pasted LinkedIn profile' : ', plus the interests you typed') : ''}`,
+        profile.privateRepos > 0 ? ` · includes ${profile.privateRepos} private repo${profile.privateRepos === 1 ? '' : 's'}` : '')
       : h('p', { class: 'profile__sub' }, linkedin ? 'From pasted LinkedIn profile' : 'From the interests you typed'));
 
   const blocks = [];

@@ -65,6 +65,7 @@ Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before 
 | `github-token` | Fine-grained GitHub token, public repositories read-only, no other permissions. Raises the GitHub API limit from 60 to 5,000 requests/hour |
 | `github-oauth-client-id`, `github-oauth-client-secret` | Optional, for accounts. A GitHub OAuth App (not a GitHub App) with callback URL `https://ryan-hilton-real.cnh.radarhq.io/auth/github/callback`; it only asks for `read:user` |
 | `session-secret` | Optional, for accounts. At least 32 random characters (`openssl rand -hex 32`), signs the short-lived OAuth state cookie |
+| `github-app-client-id`, `github-app-client-secret` | Optional, for private repos. The OAuth client of a **GitHub App** (not an OAuth App) with Repository permissions Contents: read-only and Metadata: read-only, "Request user authorization (OAuth) during installation" on, no webhook, callback URL `https://ryan-hilton-real.cnh.radarhq.io/auth/github-app/callback` |
 
 ```bash
 read -rs DASH0_TOKEN
@@ -86,6 +87,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour). A profile uses about 10 API calls (user, repo list, one tree per repo, up to 8 repos); dependency files, manifests and READMEs come from `raw.githubusercontent.com`, which doesn't count against the API limit and never receives the token. Profiles are cached in memory for 15 minutes |
 | `PUBLIC_URL` | `https://ryan-hilton-real.cnh.radarhq.io` | The app's public origin: the OAuth callback URL and the CSRF origin check for account writes |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `SESSION_SECRET` | Secret `app-credentials` (optional keys) | Sign in with GitHub. Accounts are on only when these, `PUBLIC_URL` and `DATABASE_URL` are all set; otherwise the planner works without accounts (local dev, CI) |
+| `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | Slug `switchback-conference-scheduler` in the manifest; id and secret from Secret `app-credentials` (optional keys) | "Include my private repos (read-only)". On only when accounts are on and all three are set. Stores tool and language labels from private repos in table `private_profiles`, never repo names, code or the GitHub token |
 | `DATABASE_URL` | Secret `db-app`, key `uri` (made by CloudNativePG for Cluster `db` in [`deploy/postgres.yaml`](deploy/postgres.yaml); optional) | Postgres for accounts: users, hashed sessions, saved plans and social opt-ins. Never GitHub access tokens or code. `/readyz` doesn't depend on it |
 | `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
 | `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |

@@ -43,7 +43,10 @@ function encodePath(path) {
 
 // maxCalls caps every request (API and raw files); maxApiCalls caps the ones
 // that count against GitHub's API rate limit.
-function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 60, maxApiCalls = 25 } = {}) {
+// contentsApi: read files through the API (GET /repos/{o}/{r}/contents/{path},
+// raw media type) with the token, never raw.githubusercontent.com. Used for
+// private repos with a user's short-lived GitHub App token.
+function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 60, maxApiCalls = 25, contentsApi = false } = {}) {
   let calls = 0;
   let apiCalls = 0;
 
@@ -55,6 +58,8 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
     if (auth) {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
       if (token) headers.Authorization = `Bearer ${token}`;
+      // Private repos: no automatic HTTP span with the URL (see app/telemetry.js).
+      if (contentsApi) headers['X-Switchback-Private'] = '1';
     }
     let res;
     try {
@@ -166,8 +171,11 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
       const base = path.split('/').pop();
       const kind = /^readme/i.test(base) ? 'readme' : base.includes('.') ? base.slice(base.lastIndexOf('.')) : base;
       return withSpan('github.fetch_file', { 'github.file.kind': kind }, async (span) => {
-        const url = `${RAW}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`;
-        const res = await request(span, url, { accept: 'text/plain', auth: false });
+        const res = contentsApi
+          ? await request(span, `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePath(path)}?ref=${encodeURIComponent(branch)}`,
+            { accept: 'application/vnd.github.raw', auth: true })
+          : await request(span, `${RAW}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`,
+            { accept: 'text/plain', auth: false });
         const text = await res.text();
         return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
       });

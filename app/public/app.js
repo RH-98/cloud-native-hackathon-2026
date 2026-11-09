@@ -479,7 +479,16 @@ async function init() {
   }
   const conferenceId = selectedConference();
   renderDays(conferenceId, saved?.conferenceId === conferenceId ? saved?.days : null);
-  initAccount({ conferenceId: selectedConference, restore: restoreSaved, notify: announce });
+  initAccount({ conferenceId: selectedConference, restore: restoreSaved, notify: announce, regenerate: regenerateForUser });
+}
+
+// Back from the GitHub App: rebuild the plan for the signed-in user so the
+// server blends in their private-repo signals.
+function regenerateForUser(login, done) {
+  el.github.value = login;
+  const body = state.request ? { ...state.request, github: login } : buildRequest(readInputs());
+  if (!body) return;
+  loadPlan(body, { message: 'Adding signals from your private repos…', done, fresh: true });
 }
 
 // Shows a plan restored from the user's account (account.js has already put

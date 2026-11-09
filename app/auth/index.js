@@ -14,6 +14,12 @@ function accountsFromEnv(env = process.env) {
     sessionSecret: env.SESSION_SECRET || '',
     publicUrl: (env.PUBLIC_URL || '').replace(/\/+$/, ''),
     fetch: globalThis.fetch,
+    // Private repos (optional): the read-only GitHub App's OAuth credentials and slug.
+    githubApp: {
+      clientId: env.GITHUB_APP_CLIENT_ID || '',
+      clientSecret: env.GITHUB_APP_CLIENT_SECRET || '',
+      slug: env.GITHUB_APP_SLUG || '',
+    },
   };
   return createAccounts(config);
 }
@@ -24,7 +30,10 @@ function createAccounts(config = {}) {
     && typeof config.sessionSecret === 'string' && config.sessionSecret.length >= 32
     && /^https?:\/\/[^/]+$/.test(config.publicUrl || ''),
   );
-  return { ...config, fetch: config.fetch || globalThis.fetch, enabled };
+  const app = config.githubApp || {};
+  // Needs accounts on, plus all three GitHub App values.
+  const privateRepos = Boolean(enabled && app.clientId && app.clientSecret && /^[a-z0-9][a-z0-9-]{0,99}$/.test(app.slug || ''));
+  return { ...config, fetch: config.fetch || globalThis.fetch, enabled, privateRepos };
 }
 
 function sessionToken(req) {

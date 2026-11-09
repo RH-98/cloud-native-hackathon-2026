@@ -224,13 +224,22 @@ function socialRow(c) {
 function privateReposBlock() {
   const pr = page.privateRepos;
   if (pr === undefined || pr === null) return [];
-  const connected = typeof pr === 'boolean' ? pr : Boolean(pr.connected ?? pr.enabled ?? pr.stored);
+  if (typeof pr === 'object' && !pr.enabled && !(Number(pr.repoCount) > 0)) return [];
+  // GET /api/me privateRepos: { enabled, repoCount, scannedAt }; on once a scan stored signals.
+  const n = typeof pr === 'boolean' ? (pr ? 1 : 0) : Number(pr.repoCount) || 0;
+  const connected = n > 0;
   const out = [
     h('h3', { class: 'acct__h3' }, 'Private repositories'),
     h('p', { id: 'private-state' }, connected
-      ? 'On: signals derived from your private repositories are used for your plans. Never their names or code.'
+      ? `On: tool and language signals from ${n} private repo${n === 1 ? '' : 's'} are used for your plans. Never their names or code. You can also uninstall the app in GitHub settings.`
       : 'Off: only your public repositories are read.'),
   ];
+  if (!connected) {
+    out.push(h('p', {}, h('a', { href: '/auth/github-app/install?returnTo=%2Faccount' }, 'Include my private repos (read-only)'),
+      ' installs the Switchback GitHub App with read-only access to the repos you choose.'));
+  } else {
+    out.push(h('p', {}, h('a', { href: 'https://github.com/settings/installations', target: '_blank', rel: 'noopener noreferrer' }, 'Manage or uninstall the GitHub App')));
+  }
   if (connected) {
     const forget = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, 'Forget private-repo signals');
     const actions = h('div', { class: 'acct-actions' }, forget);
@@ -241,8 +250,8 @@ function privateReposBlock() {
       confirmText: 'Forget them',
       keepText: 'Keep them',
       onConfirm: async () => {
-        await api('/api/me/private-repos', { method: 'DELETE' });
-        page.privateRepos = typeof pr === 'boolean' ? false : { ...pr, connected: false, enabled: false, stored: false };
+        await api('/api/me/private-profile', { method: 'DELETE' });
+        page.privateRepos = typeof pr === 'boolean' ? false : { ...pr, repoCount: 0, scannedAt: null };
         replaceSection('privacy', privacySection());
         $('#private-state')?.setAttribute('tabindex', '-1');
         $('#private-state')?.focus();

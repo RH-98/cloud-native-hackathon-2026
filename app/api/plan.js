@@ -134,7 +134,7 @@ async function profileFor(input, buildProfile, span) {
   }
 }
 
-// deps: { buildProfile, buildPlan, hasConference } so tests can inject fakes.
+// deps: { buildProfile, buildPlan, hasConference, withPrivateSignals? } so tests can inject fakes.
 function createPlanHandler(deps) {
   return async function handlePlan(req, res) {
     const span = trace.getActiveSpan();
@@ -148,7 +148,10 @@ function createPlanHandler(deps) {
       if (deps.hasConference && !deps.hasConference(input.conferenceId)) {
         throw new HttpError('not_found', `No conference named ${input.conferenceId}`);
       }
-      const { profile, warnings } = await profileFor(input, deps.buildProfile, span);
+      const built = await profileFor(input, deps.buildProfile, span);
+      const { warnings } = built;
+      // Signed in as this GitHub user: blend in their stored private-repo signals.
+      const profile = deps.withPrivateSignals ? await deps.withPrivateSignals(req, built.profile) : built.profile;
       const plan = await deps.buildPlan({ conferenceId: input.conferenceId, profile, options: input.options });
       sendJson(res, 200, warnings.length ? { profile, plan, warnings } : { profile, plan });
     } catch (err) {

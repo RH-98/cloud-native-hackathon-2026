@@ -189,7 +189,7 @@ test('callback happy path: user upserted, session cookie set, token discarded', 
   assert.ok(exchange.init.signal);
 
   const me = await (await fetch(`${app.base}/api/me`, { headers: { cookie: `${gh.SESSION_COOKIE}=${token}` } })).json();
-  assert.deepEqual(me, { enabled: true, user: { login: 'octocat', name: 'The Octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/42', memberSince: '2026-11-09T15:00:00.000Z' } });
+  assert.deepEqual(me, { enabled: true, user: { login: 'octocat', name: 'The Octocat', avatarUrl: 'https://avatars.githubusercontent.com/u/42', memberSince: '2026-11-09T15:00:00.000Z' }, privateRepos: { enabled: false } });
 });
 
 test('callback failures redirect to /?login=failed without a session', async (t) => {
@@ -236,7 +236,7 @@ test('with accounts off, /api/me says so and the other routes 404', async (t) =>
 test('signed out: /api/me has no user, saved plans need sign-in', async (t) => {
   const app = await start();
   t.after(app.close);
-  assert.deepEqual(await (await fetch(`${app.base}/api/me`)).json(), { enabled: true, user: null });
+  assert.deepEqual(await (await fetch(`${app.base}/api/me`)).json(), { enabled: true, user: null, privateRepos: { enabled: false } });
   const res = await fetch(`${app.base}/api/me/plan?conferenceId=kubecon-na-2026`);
   assert.equal(res.status, 401);
   assert.equal((await res.json()).error.code, 'unauthorized');
@@ -609,7 +609,7 @@ test('DELETE /api/me runs in one transaction and rolls back on failure', async (
   await db.ready();
   log.length = 0;
   await assert.rejects(db.deleteUser('1'), /boom/);
-  assert.deepEqual(log, ['BEGIN', 'DELETE FROM social_profiles', 'DELETE FROM saved_plans', 'DELETE FROM sessions', 'ROLLBACK', 'release']);
+  assert.deepEqual(log, ['BEGIN', 'DELETE FROM social_profiles', 'DELETE FROM private_profiles', 'DELETE FROM saved_plans', 'DELETE FROM sessions', 'ROLLBACK', 'release']);
 });
 
 test('account routes 503 when the database is down', async (t) => {
