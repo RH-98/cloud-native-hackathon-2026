@@ -110,7 +110,6 @@ test('POST /api/plan validates input', async (t) => {
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: { firstTimer: 'yes' } },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: { pinned: ['<script>'] } },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: { surprise: true } },
-    { conferenceId: 'kubecon-na-2026', github: 'octocat', checkedAt: 'yesterday' },
   ];
   for (const body of cases) {
     const res = await postPlan(app.base, body);
@@ -129,33 +128,15 @@ test('POST /api/plan validates input', async (t) => {
   assert.equal(get.status, 405);
 });
 
-test('validatePlanRequest keeps only known, valid options and normalizes checkedAt', () => {
+test('validatePlanRequest keeps only known, valid options', () => {
   const out = validatePlanRequest({
     conferenceId: 'kubecon-na-2026',
     github: 'octo-cat',
-    checkedAt: '2026-11-09T14:00:00-07:00',
     options: { days: ['2026-11-10', '2026-11-10'], levels: ['Beginner'], pinned: ['kubecon-na-2026:1335605'], breakMinutes: 10, includeSponsored: false, firstTimer: true },
   });
   assert.equal(out.github, 'octo-cat');
-  assert.equal(out.checkedAt, '2026-11-09T21:00:00.000Z');
   assert.deepEqual(out.options.days, ['2026-11-10']);
   assert.equal(out.options.breakMinutes, 10);
-});
-
-test('POST /api/plan passes checkedAt through to the planner', async (t) => {
-  const calls = [];
-  const app = await start({
-    buildProfile: async () => ({ source: 'interests' }),
-    buildPlan: async (input) => { calls.push(input); return {}; },
-  });
-  t.after(app.close);
-  const res = await postPlan(app.base, {
-    conferenceId: 'kubecon-na-2026',
-    interests: 'argo cd',
-    checkedAt: '2026-11-09T21:00:00.000Z',
-  });
-  assert.equal(res.status, 200);
-  assert.equal(calls[0].checkedAt, '2026-11-09T21:00:00.000Z');
 });
 
 test('unknown conference is a 404 before any GitHub call', async (t) => {

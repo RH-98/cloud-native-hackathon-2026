@@ -41,7 +41,7 @@ export function describeChange(change, timeZone) {
 /**
  * @param {{ container: HTMLElement, announce: (msg: string) => void,
  *   swap: (date, slotIndex, backupIndex) => void,
- *   replan: (opts: { message, done, checkedAt }) => Promise<boolean> }} deps
+ *   replan: (opts: { message, done }) => Promise<boolean> }} deps
  */
 export function createChangeWatch({ container, announce, swap, replan }) {
   let changes = [];
@@ -146,7 +146,6 @@ export function createChangeWatch({ container, announce, swap, replan }) {
       replan({
         message: `Re-planning around ${title}…`,
         done: entry.replan.pin ? `Kept ${title} at its new time. Route updated.` : `Dropped ${title}. Route updated.`,
-        checkedAt,
       }).then((ok) => {
         // On failure keep the notice, so the user can try again.
         if (!ok) {

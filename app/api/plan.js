@@ -7,7 +7,6 @@ const CONFERENCE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 // GitHub usernames: 1-39 alphanumerics or single hyphens, not at either end.
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const SESSION_ID = /^[a-z0-9][a-z0-9-]{0,63}:[A-Za-z0-9_.-]{1,64}$/;
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Any Level'];
 const MAX_INTERESTS = 500;
@@ -63,10 +62,10 @@ function validateOptions(options) {
   return out;
 }
 
-// Returns { conferenceId, github?, interests?, options, checkedAt? } or throws HttpError.
+// Returns { conferenceId, github?, interests?, options } or throws HttpError.
 function validatePlanRequest(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad('The request body must be a JSON object');
-  const { conferenceId, github, interests, options, checkedAt } = body;
+  const { conferenceId, github, interests, options } = body;
   if (typeof conferenceId !== 'string' || !CONFERENCE_ID.test(conferenceId)) {
     throw bad('conferenceId must be a conference id such as kubecon-na-2026');
   }
@@ -74,12 +73,6 @@ function validatePlanRequest(body) {
   const hasInterests = interests !== undefined && interests !== null && interests !== '';
   if (hasGithub === hasInterests) throw bad('Give exactly one of a GitHub username or your interests');
   const out = { conferenceId, options: validateOptions(options) };
-  if (checkedAt !== undefined && checkedAt !== null) {
-    if (typeof checkedAt !== 'string' || checkedAt.length > 40 || !ISO_DATE_TIME.test(checkedAt) || Number.isNaN(Date.parse(checkedAt))) {
-      throw bad('checkedAt must be an ISO 8601 date-time with a time zone');
-    }
-    out.checkedAt = new Date(checkedAt).toISOString();
-  }
   if (hasGithub) {
     if (typeof github !== 'string' || !GITHUB_USER.test(github)) throw bad('That is not a valid GitHub username');
     out.github = github;
@@ -117,9 +110,7 @@ function createPlanHandler(deps) {
         throw new HttpError('not_found', `No conference named ${input.conferenceId}`);
       }
       const profile = await deps.buildProfile(input.github ? { github: input.github } : { interests: input.interests });
-      const planInput = { conferenceId: input.conferenceId, profile, options: input.options };
-      if (input.checkedAt) planInput.checkedAt = input.checkedAt;
-      const plan = await deps.buildPlan(planInput);
+      const plan = await deps.buildPlan({ conferenceId: input.conferenceId, profile, options: input.options });
       sendJson(res, 200, { profile, plan });
     } catch (err) {
       if (err instanceof HttpError) {

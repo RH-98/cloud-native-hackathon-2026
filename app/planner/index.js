@@ -65,12 +65,12 @@ async function search(span, { snapshot, query, env, client }) {
 const CLIENT_ERRORS = new Set(['invalid_input', 'not_found']);
 
 // deps (tests): { env, client } — a fake Elasticsearch client, or env without credentials.
-async function buildPlan({ conferenceId, profile, options, checkedAt } = {}, deps = {}) {
+async function buildPlan({ conferenceId, profile, options } = {}, deps = {}) {
   const startedAt = metrics.now();
   // Filled in as the plan is built; only fixed values and a known conference id.
   const m = { conference: undefined, source: profile && profile.source, backend: 'none', picks: undefined };
   try {
-    const plan = await tracedBuildPlan({ conferenceId, profile, options, checkedAt }, deps, m);
+    const plan = await tracedBuildPlan({ conferenceId, profile, options }, deps, m);
     metrics.recordPlan({ ...m, outcome: 'ok', startedAt });
     return plan;
   } catch (err) {
@@ -79,7 +79,7 @@ async function buildPlan({ conferenceId, profile, options, checkedAt } = {}, dep
   }
 }
 
-async function tracedBuildPlan({ conferenceId, profile, options, checkedAt }, deps, m) {
+async function tracedBuildPlan({ conferenceId, profile, options }, deps, m) {
   const env = deps.env || process.env;
   return es.withSpan('plan.build', { 'conference.id': String(conferenceId || '').slice(0, 64) }, async (span) => {
     let snapshot = loadSnapshot(conferenceId);
@@ -95,7 +95,7 @@ async function tracedBuildPlan({ conferenceId, profile, options, checkedAt }, de
       throw err;
     }
     // Live schedule changes (schedule-watch CronJob): new times and rooms, no cancelled sessions.
-    if (deps.client || es.searchAvailable(env)) snapshot = await liveSnapshot(snapshot, deps.client || defaultClient(env), { checkedAt });
+    if (deps.client || es.searchAvailable(env)) snapshot = await liveSnapshot(snapshot, deps.client || defaultClient(env));
     const opts = normalizeOptions(options, snapshot);
     const query = {
       conferenceId,
