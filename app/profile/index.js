@@ -379,7 +379,8 @@ async function fromGithub(username, deps, span) {
     count: c.count,
     last: c.last,
   }));
-  await mapLimit(extra, deps.concurrency || CONCURRENCY, async (job) => {
+  const extraJobs = extra.slice(0, client.apiCallsLeft);
+  await mapLimit(extraJobs, deps.concurrency || CONCURRENCY, async (job) => {
     if (job.type === 'languages') {
       const [owner, name] = job.repo.full_name.split('/');
       languageBytes[job.i] = await guard(() => client.fetchLanguages(owner, name));
