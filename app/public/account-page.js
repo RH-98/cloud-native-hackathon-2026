@@ -2,7 +2,7 @@
 // "People to meet" opt-ins and what is stored, and deleting the account.
 // Pure helpers are exported for node:test; the DOM is only touched in init(),
 // which runs in the browser.
-import { accountNav, api, isOwnGithubProfile, signOut } from './account.js';
+import { accountNav, api, canOptInProfile, signOut } from './account.js';
 import { cityOf, formatDateSpan } from './format.js';
 import { h } from './render.js';
 
@@ -218,7 +218,7 @@ function socialRow(c) {
   return h('li', { class: 'acct-toggle' },
     h('p', { class: 'acct-toggle__name' }, c.name),
     h('p', { class: 'hint', id: stateId }, socialState(c.id), ' ',
-      s ? h('a', { href: openPlanHref(c.id) }, 'Generate a plan with your GitHub to opt in') : null));
+      s ? h('a', { href: openPlanHref(c.id) }, 'Generate a plan to opt in') : null));
 }
 
 function privateReposBlock() {
@@ -318,7 +318,7 @@ async function setOptIn(conferenceId, box) {
     if (optIn) {
       const saved = await api(`/api/me/plan?conferenceId=${encodeURIComponent(conferenceId)}`);
       profile = saved?.state?.profile;
-      if (!isOwnGithubProfile(profile, page.user)) throw new Error('Generate a plan with your GitHub username first.');
+      if (!canOptInProfile(profile, page.user)) throw new Error('Generate a plan from your own GitHub, interests or LinkedIn profile first.');
     }
     await api('/api/me/social', { method: 'PUT', body: { conferenceId, optIn, profile } });
     page.social.set(conferenceId, { optedIn: optIn, optedInAt: optIn ? new Date().toISOString() : null });

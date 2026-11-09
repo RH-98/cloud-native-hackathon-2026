@@ -90,11 +90,15 @@ function deriveSocialProfile(profile) {
   return { tools, languages, topics: labels(profile.topics, 30), keywords: labels(profile.keywords, 30) };
 }
 
-// You can only opt yourself in: the profile must be built from your own GitHub login.
+// You can only opt yourself in. A profile built from GitHub must be your own
+// login; a profile from typed interests or a pasted LinkedIn profile (no
+// username) is taken as yours. Either way only derived signals are stored.
 function isOwnProfile(profile, user) {
-  return Boolean(profile && typeof profile === 'object' && (profile.source === 'github' || profile.source === 'github+interests')
-    && typeof profile.username === 'string' && user
-    && profile.username.toLowerCase() === user.login.toLowerCase());
+  if (!profile || typeof profile !== 'object' || !user) return false;
+  if (profile.source === 'github' || profile.source === 'github+interests') {
+    return typeof profile.username === 'string' && profile.username.toLowerCase() === user.login.toLowerCase();
+  }
+  return profile.source === 'interests' && (profile.username === null || profile.username === undefined);
 }
 
 function conferenceParam(url) {
@@ -230,7 +234,16 @@ function createMeHandler(accounts) {
         if (!isOwnProfile(profile, user)) {
           throw new HttpError('forbidden', 'You can only opt in with a profile built from your own GitHub account');
         }
-        await db((d) => d.setSocialProfile(user.id, conferenceId, deriveSocialProfile(profile)));
+        const derived = deriveSocialProfile(profile);
+        // Typed interests keep unmatched phrases verbatim as keywords (could be names or
+        // employers). For blended profiles they are mixed with GitHub's, so all keywords are
+        // dropped unless the profile is pure GitHub or a LinkedIn paste (curated keywords).
+        if (profile.source !== 'github' && profile.pastedFrom !== 'linkedin') derived.keywords = [];
+        const signals = derived.tools.length + derived.languages.length + derived.topics.length + derived.keywords.length;
+        if (!profile.username && !signals) {
+          throw bad('Build a plan from your GitHub, interests or LinkedIn profile first');
+        }
+        await db((d) => d.setSocialProfile(user.id, conferenceId, derived));
         return sendJson(res, 200, { optedIn: true });
       }
       return sendError(res, 'method_not_allowed', 'Use GET or PUT', { allow: 'GET, PUT' });
