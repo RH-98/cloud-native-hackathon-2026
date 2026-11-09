@@ -71,7 +71,7 @@ The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/
 | `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
 | `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
 
-The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` and hides itself if that route isn't there.
+The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` (see [Suggested connections](#suggested-connections)) and hides itself if that route isn't there.
 
 ## Conference data
 
@@ -111,11 +111,26 @@ cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:
 | `ELASTICSEARCH_API_KEY` | Secret `app-credentials`, key `elasticsearch-api-key` | Elasticsearch auth |
 | `OTEL_SERVICE_NAME` | `conference-loader` | The loader's traces show in Dash0 under this name |
 
+## Suggested connections
+
+The planner can suggest people to meet: other attendees whose tools and topics overlap with your profile, with a one-line reason ("You both work with Argo CD and Crossplane") and the sessions you'll both be at.
+
+- **Opt-in only.** Only attendees with `optIn: true` are ever suggested, and a match shows only the public tools and topics you both list, never anything else from their profile or yours. Your profile is used for the request and not stored.
+- **The attendees are fictional demo data.** [`app/data/attendees/kubecon-na-2026.json`](app/data/attendees/kubecon-na-2026.json) holds 64 invented people (handles start with `demo-`, companies are generic like "a fintech"), generated deterministically by `npm run generate:attendees` ([`app/scripts/generate-fake-attendees.js`](app/scripts/generate-fake-attendees.js)). A few have opted out, to prove the filter.
+- **How it matches.** With Elasticsearch configured, `conference-attendees` is searched with the opt-in filter and reciprocal rank fusion of tag overlap (tools, topics, languages) and semantic similarity (a summary of the interests, embedded like the sessions); if the cluster rejects the `rrf` retriever, the two result lists are fused in the app. Without Elasticsearch, or if it fails, [`app/social/match.js`](app/social/match.js) scores the snapshot in memory (weighted cosine: tools > topics > languages > keywords, a boost for a maintainer of something a first-timer shares, and for sessions in common).
+- **API.** `POST /api/connections` with `{ "conferenceId", "profile", "pickedSessionIds"?, "limit"?, "firstTimer"? }` returns `{ "connections": [{ "attendee": { displayName, handle, role, bio }, score, shared, why, commonSessions }], "searchBackend", "demoData": true }`.
+
+Load the attendees into Elasticsearch with the one-off Job (`kubectl create -f jobs/load-attendees.yaml`, same Secret as the session loader) or locally:
+
+```bash
+cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:attendees
+```
+
 ## Observability (Dash0)
 
 The app sends traces, metrics and logs over OTLP to Dash0, as service `conference-planner`; the loader Job reports as `conference-loader`.
 
-**Spans:** HTTP and outbound calls come from the Node auto-instrumentation. On top of those, the app adds its own spans: `plan.build`, `es.search_sessions`, `es.search_sponsors`, and for the loader, `es.ensure_indices`, `es.load_snapshot` and `es.bulk`. A plan that falls back to the snapshot records a `search_fallback` event on `plan.build`.
+**Spans:** HTTP and outbound calls come from the Node auto-instrumentation. On top of those, the app adds its own spans: `plan.build`, `es.search_sessions`, `es.search_sponsors`, `es.search_attendees`, and for the loaders, `es.ensure_indices`, `es.load_snapshot`, `es.ensure_attendees_index`, `es.load_attendees` and `es.bulk`. A plan that falls back to the snapshot records a `search_fallback` event on `plan.build`.
 
 **Custom metrics** ([`app/metrics.js`](app/metrics.js), meter `conference-planner`). Every attribute value comes from a fixed set; none holds a username or free text.
 
