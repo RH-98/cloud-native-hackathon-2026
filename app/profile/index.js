@@ -182,7 +182,10 @@ function mergeInterests(profile, interestsProfile) {
   return {
     ...profile,
     source: 'github+interests',
-    ...(interestsProfile.pastedFrom ? { pastedFrom: interestsProfile.pastedFrom } : {}),
+    // The paste's own topics (job titles), so the browser can save them without GitHub's.
+    ...(interestsProfile.pastedFrom
+      ? { pastedFrom: interestsProfile.pastedFrom, pastedTopics: [...(interestsProfile.topics || [])] }
+      : {}),
     languages: boost(profile.languages, interestsProfile.languages, (l) => ({ name: l.name, weight: typedWeight(l) }))
       .slice(0, MAX_LANGUAGES),
     tools: boost(profile.tools, interestsProfile.tools, (t) => ({

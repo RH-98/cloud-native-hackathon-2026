@@ -140,6 +140,7 @@ test('blending with a GitHub profile keeps repo evidence and adds LinkedIn signa
   const merged = mergeInterests(github, pasted);
   assert.equal(merged.source, 'github+interests');
   assert.equal(merged.pastedFrom, 'linkedin');
+  assert.deepEqual(merged.pastedTopics, pasted.topics);
   assert.equal(merged.username, 'octo-dev');
   const byName = Object.fromEntries(merged.tools.map((t) => [t.name, t]));
   assert.deepEqual(byName.kubernetes.evidence, ['octo-dev/infra']);

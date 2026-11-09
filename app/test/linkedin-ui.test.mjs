@@ -49,7 +49,8 @@ test('a blended profile saves pasted tools and topics, not GitHub signals', () =
     source: 'github+interests', pastedFrom: 'linkedin', username: 'octo-dev',
     tools: [{ name: 'crossplane', label: 'Crossplane', weight: 0.2, evidence: ['octo-dev/infra'] },
       { name: 'terraform', label: 'Terraform', weight: 0.9, evidence: [] }],
-    languages: [{ name: 'TypeScript', weight: 0.7 }], topics: ['platform engineering'], keywords: ['monorepo'],
+    languages: [{ name: 'TypeScript', weight: 0.7 }], topics: ['platform engineering', 'kubernetes'], keywords: ['monorepo'],
+    pastedTopics: ['platform engineering'], // 'kubernetes' is a GitHub repo topic: not saved as typed
   };
   assert.deepEqual(persistableRequest({ github: 'octo-dev', interests: paste }, blended), {
     github: 'octo-dev', interests: 'Terraform, platform engineering',
