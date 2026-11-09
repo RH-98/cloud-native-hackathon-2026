@@ -189,10 +189,9 @@ function createMeHandler(accounts) {
           throw new HttpError('forbidden', 'You can only opt in with a profile built from your own GitHub account');
         }
         const derived = deriveSocialProfile(profile);
-        // Typed interests keep unmatched phrases verbatim as keywords, and a
-        // paste the parser didn't recognise could hold names or employers:
-        // without a username, only the LinkedIn parser's curated keywords are kept.
-        if (!profile.username && profile.pastedFrom !== 'linkedin') derived.keywords = [];
+        // Typed interests keep unmatched phrases verbatim as keywords (could be names or
+        // employers): only GitHub's derived keywords and the LinkedIn parser's curated ones are kept.
+        if (profile.source !== 'github' && profile.pastedFrom !== 'linkedin') derived.keywords = [];
         const signals = derived.tools.length + derived.languages.length + derived.topics.length + derived.keywords.length;
         if (!profile.username && !signals) {
           throw bad('Build a plan from your GitHub, interests or LinkedIn profile first');
