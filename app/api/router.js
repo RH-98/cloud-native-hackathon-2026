@@ -5,6 +5,7 @@ const { handleConferences, hasConference } = require('./conferences');
 const { createPlanHandler } = require('./plan');
 const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
+const { createRumHandler, isRumPath } = require('./rum');
 const { createAuthHandler } = require('./auth');
 const { privateSignalsFor } = require('./github-app');
 const { createChangesHandler } = require('./changes');
@@ -14,12 +15,14 @@ const { createAccounts, sessionToken } = require('../auth');
 
 // connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
-function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts(), getChanges = schedule.getChanges } = {}) {
+// rumEnv: environment for the Dash0 Web SDK settings at /config.js (tests pass a fake).
+function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts(), getChanges = schedule.getChanges, rumEnv } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference, withPrivateSignals: privateSignalsFor(accounts) });
   const handleConnections = createConnectionsHandler(connections);
   const handleAuth = createAuthHandler(accounts);
   const handleMe = createMeHandler(accounts);
   const handleStatic = createStaticHandler(publicDir);
+  const handleRum = createRumHandler({ env: rumEnv });
   const handleChanges = createChangesHandler({ getChanges, hasConference });
 
   return function handler(req, res) {
@@ -69,6 +72,7 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections, accoun
         });
     }
     if (p.startsWith('/api/')) return sendError(res, 'not_found', 'No such API route');
+    if (isRumPath(p)) return handleRum(req, res, p);
     return handleStatic(req, res, p);
   };
 }

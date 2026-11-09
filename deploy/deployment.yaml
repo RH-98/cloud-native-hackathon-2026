@@ -101,6 +101,17 @@ spec:
                   name: app-credentials
                   key: github-app-client-secret
                   optional: true
+            # Real-user monitoring (optional): the Dash0 Web SDK in the browser,
+            # served its settings by GET /config.js. A dedicated ingest-only
+            # token, public to browsers by design, kept out of git.
+            - name: DASH0_WEB_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: dash0-web-auth-token
+                  optional: true
+            - name: DASH0_WEB_ENDPOINT
+              value: "https://ingress.us-west-2.aws.dash0.com"
             # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS

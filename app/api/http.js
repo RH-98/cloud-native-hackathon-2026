@@ -1,14 +1,15 @@
 // Small HTTP helpers shared by the API handlers: security headers, JSON
 // responses in the contract's error format, and a size-limited JSON body reader.
 
-// Only our own origin, plus Google Fonts for the typeface and GitHub avatars.
+// Only our own origin, plus Google Fonts for the typeface, GitHub avatars, and
+// Dash0's ingest endpoint for real-user monitoring (the Web SDK posts OTLP there).
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' https://fonts.googleapis.com",
   'font-src https://fonts.gstatic.com',
   "img-src 'self' data: https://avatars.githubusercontent.com",
-  "connect-src 'self'",
+  "connect-src 'self' https://ingress.us-west-2.aws.dash0.com",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
