@@ -1,6 +1,54 @@
-# Conference day planner (Cloud Native Hackathon 2026)
+# Switchback: your route through a conference
 
-A personal day plan for KubeCon, built from your GitHub repos, with backups for every time slot. This README will grow into the project's setup guide; the Radar starter notes follow below.
+**Live:** https://ryan-hilton-real.cnh.radarhq.io · Built at the Cloud Native Hackathon, Salt Lake City, November 9, 2026 (unofficial, not affiliated with the CNCF or the Linux Foundation).
+
+KubeCon has hundreds of sessions, overlapping tracks and 244 sponsor booths. Most people show up without a plan, then spend the day searching the schedule on their phone. Switchback reads what you actually work on (your public GitHub repos, or a few interests you type) and builds you a personal day plan: the best session for each time slot, two backups for when a room is full, sponsor booths that match your stack in the gaps, and people worth meeting.
+
+## What it does
+
+- **A profile from your repos.** Give a GitHub username and Switchback scans your most recent public repos: dependency files (`package.json`, `go.mod`, `Chart.yaml`…), Kubernetes manifests, topics and READMEs. It detects about 75 cloud native tools (Argo CD, Flux, OpenTelemetry, Cilium, Kyverno…). It keeps only derived signals, never code. No GitHub history? Type your interests instead.
+- **A plan with backups.** Hybrid search in Elasticsearch (exact tool names plus semantic similarity, fused with reciprocal rank fusion) finds matching sessions, and the planner picks the best set of non-overlapping sessions per day, each with up to 2 backups and the reasons it was picked ("Matches Argo CD").
+- **Make it yours.** Swap in a backup, pin a session, skip one, set breaks between sessions, filter by level, turn on first-timer mode, and export to your calendar (`.ics`).
+- **Booths and people.** Free gaps get booth suggestions for sponsors that match your tools. "People to meet" suggests attendees who opted in and share your tools and topics (demo data: fictional attendees).
+
+## How it uses each sponsor's tool
+
+| Track | What we built with it |
+|---|---|
+| **Elasticsearch** | The data layer. Sessions are indexed with a `semantic_text` field (Elastic's built-in Jina embeddings) and searched with an `rrf` retriever that fuses a weighted lexical query on tool names with a semantic query built from the profile. Sponsors and attendees are indexed too. Loader Jobs fill the indices. All queries live in [`app/search/elasticsearch.js`](app/search/elasticsearch.js) |
+| **Dash0** | OpenTelemetry end to end: auto-instrumentation plus our own spans (`plan.build`, `profile.build`, `github.*`, `es.search_*`), custom metrics (plans, plan duration, search fallbacks, GitHub rate limit remaining), logs, a dashboard and check rules as code in [`dash0/`](dash0/), and an Agent0 investigation ([`dash0/agent0-findings.md`](dash0/agent0-findings.md)) |
+| **Radar** | Everything on the cluster goes through Radar: the Argo CD GitOps deploys, the loader Jobs (created with Radar's MCP server), logs, rollouts and Checks. Checks went from 4 findings to 0 by fixing them in git. The day is written up in [`STORY.md`](STORY.md) |
+| **Gitar** | Every change is a small pull request that Gitar reviews against our own rules ([`.gitar/`](.gitar/): never log tokens, a span on every outbound call, all Elasticsearch queries in one module, accessible UI, README kept current) and fixes with auto-apply. It caught real bugs: a planner that double-counted matches, a `__proto__` lookup in interest parsing, a race between "clear pins" and an in-flight plan request, and a README out of sync with the code |
+| **Merge Forward** | Accessibility is part of the design: semantic HTML, every control labelled, full keyboard support, visible focus, live-region announcements, WCAG AA contrast in light and dark, `prefers-reduced-motion`, times read clearly by screen readers, a first-timer mode, breaks between sessions, and the typed-interests path for people without a GitHub history |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  user[Browser: Switchback UI] -->|POST /api/plan| app[Node app, 2 pods]
+  app -->|public repos| gh[GitHub API]
+  app -->|hybrid search| es[(Elasticsearch Serverless)]
+  jobs[Loader Jobs] -->|sessions, sponsors, attendees| es
+  app -->|OTLP traces, metrics, logs| dash0[Dash0]
+  repo[GitHub repo] -->|Actions: image to GHCR| ghcr[GHCR]
+  repo -->|deploy/| argocd[Argo CD]
+  argocd -->|syncs| app
+  gitar[Gitar] -->|reviews and fixes PRs| repo
+  radar[Radar Cloud] -.->|observes and operates| app
+```
+
+The app is plain Node (`node:http`) with a no-build vanilla JS frontend in [`app/public/`](app/public/). The shapes shared between the profile, planner and API are in [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+
+## Quick start
+
+```bash
+cd app
+npm install
+npm start        # http://localhost:8080, works offline: no credentials needed
+npm test
+```
+
+Without credentials, the planner scores the bundled schedule snapshot in memory instead of Elasticsearch, and GitHub is called without a token (60 requests/hour). To deploy, see the configuration below: the cluster gets everything through GitOps, plus one Secret.
 
 ## Configuration
 
