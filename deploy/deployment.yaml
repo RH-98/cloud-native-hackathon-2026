@@ -54,6 +54,37 @@ spec:
                 secretKeyRef:
                   name: app-credentials
                   key: github-token
+            # Accounts (optional): sign in with GitHub, saved plans in Postgres.
+            # OAuth App id/secret and the session secret are in app-credentials;
+            # DATABASE_URL comes from the CloudNativePG Secret db-app. All optional:
+            # pods start before the database exists, and accounts stay off until
+            # every value is there.
+            - name: PUBLIC_URL
+              value: "https://ryan-hilton-real.cnh.radarhq.io"
+            - name: GITHUB_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: github-oauth-client-id
+                  optional: true
+            - name: GITHUB_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: github-oauth-client-secret
+                  optional: true
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: session-secret
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-app
+                  key: uri
+                  optional: true
             # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS

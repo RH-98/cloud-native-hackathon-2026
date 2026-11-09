@@ -150,6 +150,8 @@ function publicAttendee(a) {
     handle: a.handle,
     role: a.role,
     bio: a.bio,
+    // false only for real signed-in attendees (app/db listOptedInProfiles).
+    demo: a.fictional !== false,
   };
 }
 
