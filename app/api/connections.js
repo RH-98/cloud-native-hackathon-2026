@@ -6,6 +6,7 @@
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const { suggestConnections } = require('../social');
 const { HttpError, sendJson, sendError, readJsonBody } = require('./http');
+const { withRequestStates } = require('./requests');
 
 // A GitHub profile with tool evidence plus a day's picks fits well within this.
 const BODY_LIMIT = 64 * 1024;
@@ -68,10 +69,28 @@ async function handleConnections(body, deps = {}) {
   if (!result) {
     return { status: 404, json: { error: { code: 'not_found', message: `No attendees for ${conferenceId}` } } };
   }
+  // Signed in: each suggestion carries the viewer's request state with that
+  // person (none | requested | incoming | connected) for the Connect buttons.
+  let connections = result.connections;
+  if (deps.viewer && deps.connectionStates) {
+    // Best effort: without states the cards still render, just without Connect state.
+    const states = await Promise.resolve().then(() => deps.connectionStates(conferenceId)).catch((err) => {
+      const span = trace.getActiveSpan();
+      span?.recordException(err);
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection states unavailable' });
+      span?.setAttribute('accounts.db_error', true);
+      console.error(`connections: request states unavailable (${err && (err.code || err.name)})`);
+      return null;
+    });
+    if (states) connections = withRequestStates(connections, states);
+  }
   return {
     status: 200,
     json: {
-      connections: result.connections,
+      conferenceId,
+      connections,
+      // Whether the UI can offer Connect (accounts on) and whether the viewer is signed in.
+      connect: { enabled: Boolean(deps.accountsEnabled), signedIn: Boolean(deps.viewer) },
       searchBackend: result.searchBackend,
       // The attendees are fictional demo data: the UI must say so.
       demoData: true,

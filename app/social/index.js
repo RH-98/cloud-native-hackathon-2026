@@ -42,6 +42,7 @@ async function realAttendees(conferenceId, deps) {
   const rows = await list(conferenceId);
   return (rows || []).map((r) => ({
     id: `user:${r.userId}`,
+    userId: String(r.userId),
     conferenceId,
     displayName: r.displayName || r.login,
     handle: r.login,
