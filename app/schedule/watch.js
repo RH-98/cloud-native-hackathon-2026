@@ -5,6 +5,7 @@
 const { trace, metrics, SpanStatusCode } = require('@opentelemetry/api');
 const es = require('../search/elasticsearch');
 const { parseSchedule } = require('../importers/lf-events');
+const { parseSessionize } = require('../importers/sessionize');
 const { fetchText } = require('../importers/fetch');
 const { diffSessions } = require('./diff');
 const { applyOverrides } = require('./overrides');
@@ -42,13 +43,32 @@ const MIN_SOURCE_RATIO = 0.8;
  * Fetches and parses the conference's schedule page. Returns null when the
  * source can't be trusted this run (fetch failed, or too few sessions).
  */
+// Which importer reads this conference's source: Sessionize's JSON API when
+// the snapshot names one, otherwise the Linux Foundation schedule page.
+function sourceFor(conference) {
+  const src = conference.source || {};
+  const opts = { conferenceId: conference.id, utcOffset: conference.utcOffset };
+  if (src.sessionizeApiUrl) {
+    return {
+      url: src.sessionizeApiUrl,
+      // Only time, room and title are compared; the track of an added session may differ from the importer's.
+      parse: (text) => parseSessionize(JSON.parse(text), { ...opts, sessionUrl: src.scheduleUrl || null }),
+    };
+  }
+  if (src.scheduleUrl) {
+    return { url: src.scheduleUrl, parse: (text) => parseSchedule(text, { ...opts, pageUrl: src.scheduleUrl }) };
+  }
+  return null;
+}
+
 async function fetchSource(conference, liveCount, { fetchImpl, log }) {
-  const url = conference.source && conference.source.scheduleUrl;
-  if (!url) return null;
+  const source = sourceFor(conference);
+  if (!source) return null;
+  const { url } = source;
   return span('schedule.fetch', { 'conference.id': conference.id, 'url.full': url }, async (s) => {
     try {
-      const html = await fetchText(url, 'schedule.fetch_page', { fetchImpl });
-      const sessions = parseSchedule(html, { conferenceId: conference.id, utcOffset: conference.utcOffset, pageUrl: url });
+      const text = await fetchText(url, 'schedule.fetch_page', { fetchImpl });
+      const sessions = source.parse(text);
       s.setAttribute('schedule.sessions', sessions.length);
       if (sessions.length < Math.ceil(liveCount * MIN_SOURCE_RATIO)) {
         s.addEvent('source_rejected', { 'schedule.sessions': sessions.length, 'schedule.sessions_stored': liveCount });
@@ -134,4 +154,4 @@ async function watchConference(conference, { client, overrides = [], fetchImpl =
   return { conferenceId, checkedAt, sourceUsed: Boolean(fetched), changes: records, warnings };
 }
 
-module.exports = { watchConference, MIN_SOURCE_RATIO };
+module.exports = { watchConference, sourceFor, MIN_SOURCE_RATIO };

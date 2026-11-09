@@ -268,3 +268,26 @@ test('watch: undoing a simulated change (override removed) is recorded as simula
   const result = await watchConference(conference, { client, fetchImpl: fetchFixture, log: () => {} });
   assert.deepEqual(result.changes.map((c) => [c.type, c.source]), [['time_changed', 'simulated']]);
 });
+
+test('watch: Sessionize conferences are read from the Sessionize API', async () => {
+  const json = fs.readFileSync(path.join(__dirname, 'fixtures', 'sessionize-all.json'), 'utf8');
+  const { parseSessionize } = require('../importers/sessionize');
+  const conv = {
+    id: 'convergence-2026',
+    utcOffset: '-05:00',
+    source: { scheduleUrl: 'https://conv.example/sessions/', sessionizeApiUrl: 'https://sessionize.example/api/v2/x/view/All' },
+  };
+  const stored = parseSessionize(JSON.parse(json), { conferenceId: conv.id, utcOffset: conv.utcOffset }).map((s) =>
+    s.sourceId === '1293020' ? { ...s, room: 'Splash 1-2' } : s,
+  );
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    return { ok: true, status: 200, text: async () => json };
+  };
+  const client = fakeElasticsearch(stored);
+  const result = await watchConference(conv, { client, fetchImpl, log: () => {} });
+  assert.deepEqual(urls, [conv.source.sessionizeApiUrl]);
+  assert.equal(result.sourceUsed, true);
+  assert.deepEqual(result.changes.map((c) => [c.sessionId, c.type, c.after.room]), [['convergence-2026:1293020', 'room_changed', 'Splash 9']]);
+});

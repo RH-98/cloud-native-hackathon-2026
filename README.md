@@ -63,6 +63,8 @@ Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before 
 | `otel-exporter-otlp-headers` | Dash0 ingest auth, in the form `Authorization=Bearer <dash0-auth-token>` |
 | `elasticsearch-api-key` | Elasticsearch API key (encoded form) with create, write and read access to the `conference-*` indices |
 | `github-token` | Fine-grained GitHub token, public repositories read-only, no other permissions. Raises the GitHub API limit from 60 to 5,000 requests/hour |
+| `github-oauth-client-id`, `github-oauth-client-secret` | Optional, for accounts. A GitHub OAuth App (not a GitHub App) with callback URL `https://ryan-hilton-real.cnh.radarhq.io/auth/github/callback`; it only asks for `read:user` |
+| `session-secret` | Optional, for accounts. At least 32 random characters (`openssl rand -hex 32`), signs the short-lived OAuth state cookie |
 
 ```bash
 read -rs DASH0_TOKEN
@@ -82,6 +84,9 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `TEAM_NAME` | `ryan-hilton-real` | Team name (not currently shown in the UI) |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
 | `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour). A profile uses about 10 API calls (user, repo list, one tree per repo, up to 8 repos); dependency files, manifests and READMEs come from `raw.githubusercontent.com`, which doesn't count against the API limit and never receives the token. Profiles are cached in memory for 15 minutes |
+| `PUBLIC_URL` | `https://ryan-hilton-real.cnh.radarhq.io` | The app's public origin: the OAuth callback URL and the CSRF origin check for account writes |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `SESSION_SECRET` | Secret `app-credentials` (optional keys) | Sign in with GitHub. Accounts are on only when these, `PUBLIC_URL` and `DATABASE_URL` are all set; otherwise the planner works without accounts (local dev, CI) |
+| `DATABASE_URL` | Secret `db-app`, key `uri` (made by CloudNativePG for Cluster `db` in [`deploy/postgres.yaml`](deploy/postgres.yaml); optional) | Postgres for accounts: users, hashed sessions, saved plans and social opt-ins. Never GitHub access tokens or code. `/readyz` doesn't depend on it |
 | `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
 | `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
@@ -179,7 +184,7 @@ cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:
 
 Sessions move, change rooms and get cancelled during the conference. The CronJob `schedule-watch` ([`deploy/schedule-watch.yaml`](deploy/schedule-watch.yaml), managed by Argo CD) checks every 10 minutes:
 
-1. It re-fetches each conference's schedule page (the importer's `parseSchedule`), and applies the demo overrides on top.
+1. It re-fetches each conference's source with its importer (the LF schedule page with `parseSchedule`, or the Sessionize API with `parseSessionize`), and applies the demo overrides on top.
 2. It diffs that against `conference-sessions` ([`app/schedule/diff.js`](app/schedule/diff.js)): `time_changed`, `room_changed`, `cancelled`, `added`, or `details_changed` (title only; description and whitespace edits are noise).
 3. It writes one document per change to the index `conference-changes`, updates the changed sessions in place (a cancelled session gets `kind: cancelled`, nothing is deleted), and sets `lastCheckedAt` on the `conference-meta` record.
 
