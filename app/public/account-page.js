@@ -70,6 +70,7 @@ const page = {
   plansError: null,
   social: new Map(), // conferenceId -> { optedIn, optedInAt } | null (unknown)
   privateRepos: undefined,
+  connections: null, // { outgoing, incoming, accepted } from GET /api/me/connections, or { error }
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -278,7 +279,8 @@ function privacySection() {
           h('li', {}, 'Your GitHub account id, username, name and avatar link.'),
           h('li', {}, 'The plans you save: your picks, pins, skips and the profile they were built from.'),
           h('li', {}, 'A sign-in session, stored only as a hash. It expires after 7 days.'),
-          h('li', {}, 'Only if you opt in: tool, topic, language and keyword labels for “People to meet”.'))),
+          h('li', {}, 'Only if you opt in: tool, topic, language and keyword labels for “People to meet”.'),
+          h('li', {}, 'Connection requests you send or receive, and whether they were accepted.'))),
       h('div', {},
         h('h3', { class: 'acct__h3' }, 'What we never store'),
         h('ul', { class: 'acct-list' },
@@ -286,6 +288,117 @@ function privacySection() {
           h('li', {}, 'Your GitHub access token: it is used once while you sign in, then dropped.'),
           h('li', {}, 'Your email address or password.')))),
     ...privateReposBlock());
+}
+
+// ---------- Connections (requests from "People to meet") ----------
+
+function connPerson(r) {
+  const p = r.person || {};
+  const who = h('span', { class: 'acct-conn__who' }, p.displayName || p.handle,
+    p.handle ? h('span', { class: 'acct-plan__meta' }, ` @${p.handle}`) : null);
+  return who;
+}
+
+function connMeta(r) {
+  const bits = [];
+  if (r.person?.role) bits.push(r.person.role);
+  if (r.shared?.length) bits.push(`In common: ${r.shared.join(', ')}`);
+  if (r.simulated) bits.push(r.note || 'Demo attendee: auto-accepted (simulated)');
+  return bits.length ? h('p', { class: 'acct-conn__meta' }, bits.join(' · ')) : null;
+}
+
+function connButton(text, sr, cls, onClick) {
+  const b = h('button', { type: 'button', class: `btn btn--small ${cls}` }, text, srOnly(` ${sr}`));
+  b.addEventListener('click', () => onClick(b));
+  return b;
+}
+
+function connItem(r, kind) {
+  const name = r.person?.displayName || r.person?.handle || 'this attendee';
+  const actions = [];
+  if (kind === 'incoming') {
+    actions.push(
+      connButton('Accept', name, 'btn--primary', (b) => answerRequest(b, r, 'accept', `Connected with ${name}.`)),
+      connButton('Decline', name, 'btn--quiet', (b) => answerRequest(b, r, 'decline', `Declined ${name}'s request.`)),
+    );
+  } else if (kind === 'outgoing') {
+    actions.push(h('span', {}, '✓ Requested'),
+      connButton('Withdraw', `request to ${name}`, 'btn--quiet', (b) => withdrawRequest(b, r, `Withdrew your request to ${name}.`)));
+  } else if (r.person?.profileUrl) {
+    actions.push(h('span', {}, '✓ Connected · '),
+      h('a', { href: r.person.profileUrl, target: '_blank', rel: 'noopener noreferrer' }, `@${r.person.handle}`, srOnly(' on GitHub (opens in a new tab)')));
+  } else {
+    actions.push(h('span', {}, '✓ Connected'));
+  }
+  return h('li', { class: 'acct-conn' }, connPerson(r), ...actions, connMeta(r));
+}
+
+function connectionsSection() {
+  const c = page.connections;
+  if (!c) return section('connections', 'Connections', h('p', { class: 'hint' }, 'Loading…'));
+  if (c.error) return section('connections', 'Connections', h('p', {}, `Your connections are unavailable right now: ${c.error}`));
+  const all = [...c.incoming, ...c.outgoing, ...c.accepted];
+  if (!all.length) {
+    return section('connections', 'Connections',
+      h('p', { class: 'hint' }, 'No connection requests yet. Use “Connect” on a card in “People to meet” on your plan. Real attendees see your request only if you both opted in for that conference.'));
+  }
+  const ids = [...new Set(all.map((r) => r.conferenceId))];
+  const groups = ids.map((id) => {
+    const of = (list) => list.filter((r) => r.conferenceId === id);
+    const block = (title, list, kind) => (list.length
+      ? [h('h4', { class: 'acct__h3' }, `${title} (${list.length})`), h('ul', { class: 'acct-conns' }, list.map((r) => connItem(r, kind)))]
+      : []);
+    return [
+      h('h3', { class: 'acct__h3' }, confName(id)),
+      ...block('Wants to connect with you', of(c.incoming), 'incoming'),
+      ...block('Your requests', of(c.outgoing), 'outgoing'),
+      ...block('Connected', of(c.accepted), 'accepted'),
+    ];
+  });
+  return section('connections', 'Connections',
+    h('p', { class: 'hint' }, 'People you asked to connect with, and people who asked you, from “People to meet”. Their GitHub profile shows once you both agree. A decline is never shown to the person who asked.'),
+    ...groups.flat());
+}
+
+async function loadConnections() {
+  try {
+    const data = await api('/api/me/connections');
+    page.connections = { outgoing: data?.outgoing || [], incoming: data?.incoming || [], accepted: data?.accepted || [] };
+  } catch (err) {
+    page.connections = { error: err.message };
+  }
+}
+
+async function refreshConnections(message) {
+  await loadConnections();
+  replaceSection('connections', connectionsSection());
+  if (page.user && !page.connections.error) {
+    $('#account')?.replaceChildren(...accountNav(page.user, { current: true, incoming: page.connections.incoming.length }));
+  }
+  $('#connections-h')?.focus();
+  announce(message);
+}
+
+async function answerRequest(button, r, action, done) {
+  button.disabled = true;
+  try {
+    await api(`/api/me/connections/${encodeURIComponent(r.id)}/${action}`, { method: 'POST' });
+    await refreshConnections(done);
+  } catch (err) {
+    button.disabled = false;
+    announce(`Could not update: ${err.message}`);
+  }
+}
+
+async function withdrawRequest(button, r, done) {
+  button.disabled = true;
+  try {
+    await api(`/api/me/connections/${encodeURIComponent(r.id)}`, { method: 'DELETE' });
+    await refreshConnections(done);
+  } catch (err) {
+    button.disabled = false;
+    announce(`Could not update: ${err.message}`);
+  }
 }
 
 function dangerSection() {
@@ -302,7 +415,7 @@ function dangerSection() {
     onConfirm: deleteAccount,
   }));
   const node = section('danger', 'Danger zone',
-    h('p', {}, 'Deleting your account removes your saved plans, your “People to meet” opt-ins, your sign-in sessions and your account record. You can sign in again later to start fresh.'),
+    h('p', {}, 'Deleting your account removes your saved plans, your “People to meet” opt-ins, your connection requests (sent and received), your sign-in sessions and your account record. You can sign in again later to start fresh.'),
     actions);
   node.classList.add('acct-card--danger');
   return node;
@@ -388,7 +501,7 @@ async function init() {
   page.user = me.user;
   page.privateRepos = me.privateRepos;
   const nav = $('#account');
-  nav.replaceChildren(...accountNav(me.user, { current: true }));
+  nav.replaceChildren(...accountNav(me.user, { current: true, incoming: me.connectionRequests?.incoming }));
   nav.hidden = false;
 
   const [conferences, plans] = await Promise.all([
@@ -400,12 +513,13 @@ async function init() {
   ]);
   page.conferences = conferences;
   page.plans = plans;
+  await loadConnections();
   const ids = [...new Set([...conferences.map((c) => c.id), ...plans.map((p) => p.conferenceId)])];
   await Promise.all(ids.map((id) => api(`/api/me/social?conferenceId=${encodeURIComponent(id)}`)
     .then((s) => page.social.set(id, { optedIn: Boolean(s?.optedIn), optedInAt: s?.optedInAt || null }))
     .catch(() => page.social.set(id, null))));
 
-  content.replaceChildren(profileSection(), plansSection(), privacySection(), dangerSection());
+  content.replaceChildren(profileSection(), plansSection(), connectionsSection(), privacySection(), dangerSection());
 }
 
 if (typeof document !== 'undefined' && document.getElementById('acct-content')) init();

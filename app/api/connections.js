@@ -80,6 +80,7 @@ async function handleConnections(body, deps = {}) {
   return {
     status: 200,
     json: {
+      conferenceId,
       connections,
       // Whether the UI can offer Connect (accounts on) and whether the viewer is signed in.
       connect: { enabled: Boolean(deps.accountsEnabled), signedIn: Boolean(deps.viewer) },

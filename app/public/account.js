@@ -6,6 +6,7 @@
 // pure helpers (snapshotState, applySnapshot, isOwnGithubProfile).
 import { h } from './render.js';
 import { persistableRequest, state } from './state.js';
+import { requestBadge } from './connect.js';
 
 const SAVE_DELAY_MS = 800;
 const MAX_SAVE_CHARS = 450 * 1024; // the server takes up to 500 KB of state
@@ -17,6 +18,7 @@ const account = {
   privateRepos: { enabled: false, repoCount: 0, scannedAt: null },
   conferenceId: null,
   socialOptedIn: false,
+  incomingRequests: 0, // connection requests waiting for an answer (header badge)
 };
 let hooks = { conferenceId: () => null, restore: () => {} };
 
@@ -145,19 +147,19 @@ function renderHeader() {
   if (!account.user) {
     nav.replaceChildren(signInLink('Sign in with GitHub', 'account__link'));
   } else {
-    nav.replaceChildren(...accountNav(account.user));
+    nav.replaceChildren(...accountNav(account.user, { incoming: account.incomingRequests }));
   }
   nav.hidden = false;
 }
 
 // Signed-in header: avatar and @login linking to the account page, and Sign out.
 // The account page passes { current: true } to mark its own link.
-export function accountNav(u, { current = false } = {}) {
+export function accountNav(u, { current = false, incoming = 0 } = {}) {
   const avatar = u.avatarUrl ? h('img', { class: 'account__avatar', src: u.avatarUrl, alt: '', width: 28, height: 28 }) : null;
   const out = h('button', { type: 'button', class: 'btn btn--small account__out' }, 'Sign out');
   out.addEventListener('click', signOut);
   const link = h('a', { class: 'account__who account__link', href: '/account', 'aria-current': current ? 'page' : null },
-    avatar, h('span', {}, h('span', { class: 'sr-only' }, 'Your account: '), `@${u.login}`));
+    avatar, h('span', {}, h('span', { class: 'sr-only' }, 'Your account: '), `@${u.login}`), requestBadge(incoming));
   return [link, out];
 }
 
@@ -411,6 +413,7 @@ export async function initAccount(opts) {
     const me = await api('/api/me');
     account.enabled = Boolean(me?.enabled);
     account.user = me?.user || null;
+    account.incomingRequests = Number(me?.connectionRequests?.incoming) || 0;
     const pr = me?.privateRepos;
     account.privateRepos = { enabled: Boolean(pr?.enabled), repoCount: Number(pr?.repoCount) || 0, scannedAt: pr?.scannedAt || null };
   } catch {
