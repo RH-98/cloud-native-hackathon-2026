@@ -155,7 +155,9 @@ test('planDays: low scores stay free time, and free gaps become slots with booth
   assert.deepEqual(picks(day), ['t:k', 't:a']); // the keynote fills its slot before the day's 9:00 window
   const free = day.slots.filter((s) => !s.pick);
   assert.deepEqual(free.map((s) => [s.start, s.end]), [[at('10:00'), at('18:00')]]);
-  assert.deepEqual(free[0].backups, []);
+  // The weak match is no pick, but it is on during the free window: an option.
+  assert.deepEqual(free[0].backups.map((r) => [r.session.id, r.reasons[0]]), [['t:b', 'Fits this window']]);
+  assert.deepEqual(free[0].booths.map((r) => r.sponsor.name), ['Akuity', 'Dash0']);
   const withGap = day.booths.filter((b) => b.gap);
   assert.equal(withGap.length, 2);
   assert.deepEqual(withGap[0].gap, { start: at('10:00'), end: at('18:00') });
