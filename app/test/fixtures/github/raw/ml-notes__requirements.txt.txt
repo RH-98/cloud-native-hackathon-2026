@@ -1,0 +1,4 @@
+# serving
+vllm>=0.6.0
+ray[serve]==2.38.0
+psycopg[binary]

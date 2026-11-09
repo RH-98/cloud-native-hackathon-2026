@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: app
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/octo-dev/deploy-stack:abc123
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.110.0
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-tls
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app

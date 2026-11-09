@@ -1,0 +1,11 @@
+{
+  "name": "web-ui",
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-node": "^0.53.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@grpc/grpc-js": "^1.12.0"
+  }
+}
