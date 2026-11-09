@@ -106,14 +106,15 @@ A free slot (`pick: null`, any open stretch of 10 minutes or more between 9:00 a
                                 // Empty for windows under 15 minutes.
   "booths": [{ "sponsor": Sponsor, "score": 0.7, "reasons": ["…"] }],
                                 // on expo days: the day's booths for windows of 30+ min, one top match for 15-30 min
+                                // (also listed in day.booths with this window as its gap)
   "logistics": [{ "title": "Lunch", "type": "meal", "start": "…", "end": "…", "room": "…" }],
                                 // kind "logistics" items overlapping the window (type: meal | break | social | expo | other);
                                 // titles lose leading emoji and ALL CAPS; all-day services (over 4 h) are left out
-  "suggestion": "Lunch is served 12:20–2:20 PM in Halls A-C."  // one line for the window; "Short break: …" under 15 min
+  "suggestion": "Lunch is served 12:20–2:20 PM MT in Halls A-C."  // one line for the window, times with the zone; "Short break: …" under 15 min
 }
 ```
 
-Free-slot options never export: the `.ics` file and "Copy plan as text" list only picks. "Add to plan" on a free-slot session pins it (re-requests with `options.pinned`).
+Free-slot options never export: the `.ics` file and "Copy plan as text" list only picks. "Add to plan" on a free-slot session pins it (re-requests with `options.pinned`); a pick it overlaps (or crowds within `breakMinutes`) drops out, and the UI names it in the announcement.
 
 `Recommendation` is `{ "session": Session, "score": 0.83, "reasons": ["Matches argo-cd", "Beginner"] }`. `Session` and `Sponsor` are exactly the objects in [`app/data/conference-format.md`](../app/data/conference-format.md). `reasons` are short, human-readable strings the UI shows as-is.
 

@@ -92,7 +92,7 @@ test('free slot: meals and breaks in the window, all-day services left out, and 
   assert.deepEqual(free.logistics, [
     { title: 'Lunch', type: 'meal', start: at('12:20'), end: at('14:20'), room: 'Salt Palace | Level 1 | Halls A-C' },
   ]);
-  assert.equal(free.suggestion, 'Lunch is served 12:20–2:20 PM in Halls A-C.');
+  assert.equal(free.suggestion, 'Lunch is served 12:20–2:20 PM MT in Halls A-C.');
 });
 
 test('free slot: booths in long and 15-30 minute gaps on expo days, a walk for short ones', () => {
@@ -121,8 +121,12 @@ test('free slot: booths in long and 15-30 minute gaps on expo days, a walk for s
   assert.deepEqual(twelve.booths, []);
   assert.deepEqual(twelve.backups, []);
   assert.equal(twelve.suggestion, 'Short break: walk to your next room.');
-  // The day's booth list is unchanged: only the long gap's two, plus the loose ones.
-  assert.equal(day.booths.filter((b) => b.gap).length, 2);
+  // The day's booth list has them all: the long gap's two and the short gap's one.
+  assert.deepEqual(day.booths.filter((b) => b.gap).map((b) => [b.sponsor.name, b.gap.start]), [
+    ['Akuity', at('12:00')],
+    ['Dash0', at('12:00')],
+    [twenty.booths[0].sponsor.name, at('10:00')],
+  ]);
 });
 
 test('free slot: no booths and no sad dead end on a day without an expo', () => {

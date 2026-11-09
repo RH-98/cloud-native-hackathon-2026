@@ -214,7 +214,7 @@ function pickSponsor(ranked, usedToday, usedEver) {
   );
 }
 
-function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, utcOffset, sponsors, boothsOpen, usedSponsors }) {
+function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], zone = '', options, utcOffset, sponsors, boothsOpen, usedSponsors }) {
   const gapMs = options.breakMinutes * MINUTE;
   const pinnedIds = new Set(pinnedRecs.map((r) => r.session.id));
   const good = recs.filter((r) => r.score >= MIN_SCORE && !pinnedIds.has(r.session.id));
@@ -282,13 +282,15 @@ function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, u
       .map(({ sponsor, score, reasons }) => ({ sponsor, score, reasons }));
     if (boothsOpen && !slot.booths.length && mins >= SHORT_GAP_MINUTES) {
       for (let i = 0; i < SHORT_GAP_BOOTHS; i += 1) {
-        const next = sponsors.find((r) => !usedToday.has(r.sponsor.id));
+        const next = pickSponsor(sponsors, usedToday, usedSponsors);
         if (!next) break;
         usedToday.add(next.sponsor.id);
+        usedSponsors.add(next.sponsor.id);
         slot.booths.push({ sponsor: next.sponsor, score: next.score, reasons: next.reasons });
+        booths.push({ sponsor: next.sponsor, score: next.score, reasons: next.reasons, gap: { start: slot.start, end: slot.end } });
       }
     }
-    slot.suggestion = suggestionFor(mins, slot);
+    slot.suggestion = suggestionFor(mins, slot, zone);
   }
   return { date, slots, booths };
 }
@@ -371,10 +373,27 @@ function clock(iso) {
   return { text: `${h % 12 || 12}:${iso.slice(14, 16)}`, half: h >= 12 ? 'PM' : 'AM' };
 }
 
-function clockRange(start, end) {
+// "12:20–2:20 PM MT": the zone always goes with the times.
+function clockRange(start, end, zone) {
   const a = clock(start);
   const b = clock(end);
-  return a.half === b.half ? `${a.text}–${b.text} ${b.half}` : `${a.text} ${a.half}–${b.text} ${b.half}`;
+  const range = a.half === b.half ? `${a.text}–${b.text} ${b.half}` : `${a.text} ${a.half}–${b.text} ${b.half}`;
+  return zone ? `${range} ${zone}` : range;
+}
+
+// "MT" for America/Denver (as the UI shows it), else "MST"-style, else the offset.
+function zoneLabel(timeZone, utcOffset, date) {
+  for (const timeZoneName of ['shortGeneric', 'short']) {
+    try {
+      const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName })
+        .formatToParts(new Date(`${date}T12:00:00${utcOffset === 'Z' ? 'Z' : utcOffset}`))
+        .find((p) => p.type === 'timeZoneName');
+      if (part && !/^GMT/.test(part.value)) return part.value;
+    } catch {
+      // unknown zone or option: try the next one
+    }
+  }
+  return utcOffset === 'Z' ? 'UTC' : `UTC${utcOffset}`;
 }
 
 // "Salt Palace | Level 1 | Halls A-C" -> "Halls A-C".
@@ -383,7 +402,7 @@ function shortRoom(room) {
 }
 
 // One friendly line for a free window, in place of a bare "free".
-function suggestionFor(mins, slot) {
+function suggestionFor(mins, slot, zone = '') {
   const { logistics, booths, backups } = slot;
   const food =
     logistics.find((l) => PLAIN_MEAL.test(l.title)) ||
@@ -396,7 +415,7 @@ function suggestionFor(mins, slot) {
   }
   const parts = [];
   if (food) {
-    const when = clockRange(food.start, food.end);
+    const when = clockRange(food.start, food.end, zone);
     if (PLAIN_MEAL.test(food.title)) parts.push(`${food.title.replace(/ break$/i, '')} is served ${when}${where}.`);
     else parts.push(`${food.title}: ${when}${where}.`);
   }
@@ -478,6 +497,7 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
       pinnedRecs: pinnedRecs.filter((r) => r.session.start.slice(0, 10) === date),
       pool: pool.filter((r) => r.session.start.slice(0, 10) === date),
       logistics: logistics.filter((l) => l.start.slice(0, 10) === date),
+      zone: zoneLabel(snapshot.conference && snapshot.conference.timezone, utcOffset, date),
       options,
       utcOffset,
       sponsors: ranked,
