@@ -44,12 +44,14 @@ test('short typed lists on several lines are kept; a short LinkedIn paste is not
     'Kubernetes, Go, platform engineering, aws');
 });
 
-test('a blended profile saves only the pasted tools, not the GitHub ones', () => {
+test('a blended profile saves pasted tools and topics, not GitHub signals', () => {
   const blended = {
     source: 'github+interests', pastedFrom: 'linkedin', username: 'octo-dev',
     tools: [{ name: 'crossplane', label: 'Crossplane', weight: 0.2, evidence: ['octo-dev/infra'] },
       { name: 'terraform', label: 'Terraform', weight: 0.9, evidence: [] }],
-    languages: [{ name: 'TypeScript', weight: 0.7 }], topics: ['gitops'], keywords: ['monorepo'],
+    languages: [{ name: 'TypeScript', weight: 0.7 }], topics: ['platform engineering'], keywords: ['monorepo'],
   };
-  assert.deepEqual(persistableRequest({ github: 'octo-dev', interests: paste }, blended), { github: 'octo-dev', interests: 'Terraform' });
+  assert.deepEqual(persistableRequest({ github: 'octo-dev', interests: paste }, blended), {
+    github: 'octo-dev', interests: 'Terraform, platform engineering',
+  });
 });

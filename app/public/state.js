@@ -39,9 +39,9 @@ export function isPastedText(text) {
 }
 
 // The pasted signals as a short interests line, to keep in place of a paste.
-// In a blended profile only tools without repo evidence came from the paste:
-// GitHub's tools, languages and words are left out so a replan doesn't treat
-// them as typed (and raise them to 0.9).
+// In a blended profile only tools without repo evidence came from the paste;
+// GitHub's languages and keywords are left out so a replan doesn't treat them
+// as typed (and raise them to 0.9). Topics are not weight-boosted.
 export function derivedInterests(profile) {
   if (!profile) return '';
   const blended = profile.source === 'github+interests';
@@ -49,7 +49,8 @@ export function derivedInterests(profile) {
   const words = [
     ...tools.map((t) => t.label || t.name),
     ...(blended ? [] : (profile.languages || []).map((l) => l.name)),
-    ...(blended ? [] : [...(profile.topics || []), ...(profile.keywords || [])]),
+    ...(profile.topics || []),
+    ...(blended ? [] : (profile.keywords || [])),
   ].filter((w) => typeof w === 'string' && w);
   let out = '';
   for (const w of [...new Set(words)]) {
