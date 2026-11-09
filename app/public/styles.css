@@ -816,3 +816,14 @@ input[type="checkbox"] { width: 1.15rem; height: 1.15rem; accent-color: var(--ac
 .changes__meta { margin: 0 0 var(--space-3); color: var(--text-muted); font-size: 0.875rem; }
 .changes__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
 .change__text { margin: 0 0 var(--space-2); }
+.private-repos {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+}
+.private-repos .hint { margin: var(--space-2) 0 0; }
+.private-repos a:not(.btn) { color: var(--link); }
+.private-repos__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.private-repos__actions .btn { text-decoration: none; }
+.private-repos__btn { text-decoration: none; }

@@ -14,6 +14,7 @@ const PENDING_KEY = 'switchback:pending-save';
 const account = {
   enabled: false,
   user: null,
+  privateRepos: { enabled: false, repoCount: 0, scannedAt: null },
   conferenceId: null,
   socialOptedIn: false,
 };
@@ -196,6 +197,81 @@ function syncSignedInHint() {
   use.hidden = isSameLogin(input.value, account.user.login);
 }
 
+// ---------- Private repos (read-only GitHub App) ----------
+
+const UNINSTALL_URL = 'https://github.com/settings/installations';
+
+function privateHref(rescan) {
+  return `/auth/github-app/install?returnTo=%2F${rescan ? '&mode=rescan' : ''}`;
+}
+
+function privateLink(text, rescan, cls) {
+  const a = h('a', { href: privateHref(rescan), class: cls }, text);
+  a.addEventListener('click', rememberPending);
+  return a;
+}
+
+// Under the username field when signed in and the server has the App set up.
+function renderPrivateRepos() {
+  const box = $('#private-repos');
+  if (!box) return;
+  const p = account.privateRepos;
+  if (!account.enabled || !account.user || !p.enabled) {
+    box.hidden = true;
+    return;
+  }
+  const uninstall = () => h('a', { href: UNINSTALL_URL, target: '_blank', rel: 'noopener noreferrer' }, 'uninstall the app in GitHub settings');
+  if (!p.repoCount) {
+    box.replaceChildren(
+      privateLink('Include my private repos (read-only)', false, 'btn btn--small private-repos__btn'),
+      h('p', { class: 'hint' },
+        "Installs the Switchback GitHub App with read-only access to the repos you choose. We keep only tool and language labels, never code or repo names, and drop GitHub's token right after the scan. You can ", uninstall(), ' anytime. ',
+        privateLink('Already installed? Re-scan', true, 'private-repos__rescan')),
+    );
+  } else {
+    const n = p.repoCount;
+    const forget = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, 'Forget my private-repo signals');
+    forget.addEventListener('click', () => forgetPrivate(forget));
+    box.replaceChildren(
+      h('p', { class: 'hint' }, h('strong', {}, `Includes ${n} private repo${n === 1 ? '' : 's'}`),
+        ' (tool and language labels only, never names or code). You can also ', uninstall(), '.'),
+      h('div', { class: 'private-repos__actions' }, privateLink('Re-scan private repos', true, 'btn btn--small'), forget),
+    );
+  }
+  box.hidden = false;
+}
+
+async function forgetPrivate(button) {
+  button.disabled = true;
+  try {
+    await api('/api/me/private-profile', { method: 'DELETE' });
+    account.privateRepos = { ...account.privateRepos, repoCount: 0, scannedAt: null };
+    renderPrivateRepos();
+    hooks.notify?.('Private-repo signals deleted. Map your route again to plan without them.');
+  } catch (err) {
+    button.disabled = false;
+    hooks.notify?.(`Could not delete private-repo signals: ${err.message}`);
+  }
+}
+
+// ?private=<outcome> after the GitHub App round trip. Returns the outcome.
+function takePrivateOutcome() {
+  const params = new URLSearchParams(window.location.search);
+  const outcome = params.get('private');
+  if (!outcome) return null;
+  params.delete('private');
+  const rest = params.toString();
+  window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+  return outcome;
+}
+
+const PRIVATE_MESSAGES = {
+  none: 'No private repos were shared with Switchback, so nothing was added. Pick repos on GitHub and try again.',
+  mismatch: 'That GitHub account is not the one you signed in with, so nothing was scanned.',
+  failed: 'Could not read your private repos. Try again in a moment.',
+  unavailable: 'Private repos are not available right now.',
+};
+
 function setSaveStatus(text) {
   const el = $('#save-status');
   if (el) el.textContent = text;
@@ -317,11 +393,24 @@ export async function initAccount(opts) {
     const me = await api('/api/me');
     account.enabled = Boolean(me?.enabled);
     account.user = me?.user || null;
+    const pr = me?.privateRepos;
+    account.privateRepos = { enabled: Boolean(pr?.enabled), repoCount: Number(pr?.repoCount) || 0, scannedAt: pr?.scannedAt || null };
   } catch {
     account.enabled = false;
   }
   renderHeader();
   renderFormStart();
+  renderPrivateRepos();
+  const privateOutcome = takePrivateOutcome();
+  if (privateOutcome && PRIVATE_MESSAGES[privateOutcome]) hooks.notify?.(PRIVATE_MESSAGES[privateOutcome]);
+  await restoreFlow();
+  // Back from the GitHub App with signals stored: rebuild the plan with them.
+  if (privateOutcome === 'ready' && account.user && account.privateRepos.repoCount) {
+    hooks.regenerate?.(account.user.login, 'Private repos included. Route updated.');
+  }
+}
+
+async function restoreFlow() {
   if (!account.user) {
     takePending(); // signed out: drop anything left over
     return;
