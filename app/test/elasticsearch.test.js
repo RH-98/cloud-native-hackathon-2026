@@ -28,6 +28,70 @@ test('toBulkOperations indexes sessions, sponsors and the conference record by s
   assert.equal(ops[5].sponsorCount, 1);
 });
 
+test('loadSnapshot writes the conference metadata only after all data documents succeed', async () => {
+  const calls = [];
+  const client = {
+    bulk: async (request) => {
+      calls.push(request);
+      return {
+        items: request.operations
+          .filter((_, index) => index % 2 === 0)
+          .map((operation) => ({ index: { _id: operation.index._id } })),
+      };
+    },
+    indices: { refresh: async () => {} },
+  };
+
+  const result = await es.loadSnapshot(client, snapshot);
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].refresh, undefined);
+  assert.deepEqual(calls[1].operations, [
+    { index: { _index: 'conference-meta', _id: 'test-conf' } },
+    {
+      id: 'test-conf',
+      name: 'Test Conf',
+      location: 'Somewhere',
+      timezone: 'America/Denver',
+      utcOffset: '-07:00',
+      startDate: '2026-11-09',
+      endDate: '2026-11-12',
+      retrievedAt: '2026-11-09T19:40:00.000Z',
+      sessionCount: 1,
+      sponsorCount: 1,
+    },
+  ]);
+  assert.equal(calls[1].refresh, true);
+  assert.deepEqual(result, { indexed: 3, failures: [] });
+});
+
+test('loadSnapshot does not write conference metadata when a data document fails', async () => {
+  const calls = [];
+  const client = {
+    bulk: async (request) => {
+      calls.push(request);
+      return {
+        items: request.operations
+          .filter((_, index) => index % 2 === 0)
+          .map((operation, index) => ({
+            index: index === 0
+              ? { _id: operation.index._id, error: { reason: 'indexing failed' } }
+              : { _id: operation.index._id },
+          })),
+      };
+    },
+    indices: { refresh: async () => {} },
+  };
+
+  const result = await es.loadSnapshot(client, snapshot);
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(result, {
+    indexed: 1,
+    failures: [{ id: 'test-conf:1', reason: 'indexing failed' }],
+  });
+});
+
 test('session mapping covers every field the importer produces', () => {
   const fields = Object.keys(es.MAPPINGS[es.INDEX.sessions].properties);
   const sessionFields = [

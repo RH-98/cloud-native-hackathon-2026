@@ -148,6 +148,7 @@ async function loadSnapshot(client, snapshot, { batchSize = 50 } = {}) {
   const conferenceId = snapshot.conference.id;
   return withSpan('es.load_snapshot', { 'conference.id': conferenceId }, async (span) => {
     const ops = toBulkOperations(snapshot);
+    const metaOps = ops.splice(ops.length - 2, 2);
     let indexed = 0;
     const failures = [];
     // Small batches: each session runs through the embedding model on ingest.
@@ -155,6 +156,16 @@ async function loadSnapshot(client, snapshot, { batchSize = 50 } = {}) {
       const batch = ops.slice(i, i + batchSize * 2);
       const res = await withSpan('es.bulk', { 'es.bulk.operations': batch.length / 2 }, () =>
         client.bulk({ operations: batch }),
+      );
+      for (const item of res.items) {
+        const result = item.index;
+        if (result.error) failures.push({ id: result._id, reason: result.error.reason });
+        else indexed += 1;
+      }
+    }
+    if (failures.length === 0) {
+      const res = await withSpan('es.bulk', { 'es.bulk.operations': 1 }, () =>
+        client.bulk({ operations: metaOps, refresh: true }),
       );
       for (const item of res.items) {
         const result = item.index;
