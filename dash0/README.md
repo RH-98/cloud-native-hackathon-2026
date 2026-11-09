@@ -18,7 +18,7 @@ The custom metrics come from `app/metrics.js` (meter `conference-planner`). The 
 
 We checked the query patterns against live `conference-planner` data with the Dash0 MCP `promql` tool: the HTTP histogram queries, `histogram_count`, and `last_over_time` on a live gauge. The `planner.*` series appear once the build with `app/metrics.js` is deployed and has served some plans.
 
-**Pending: `github.ratelimit.remaining`.** Its two dashboard panels and the "GitHub rate limit low" check stay empty until the profile's GitHub client feeds the gauge. To do that, call `require('../metrics').recordGithubRateLimit(res.headers.get('x-ratelimit-remaining'))` on every GitHub API response, in `app/profile/`.
+`github.ratelimit.remaining` holds the `x-ratelimit-remaining` header from the latest api.github.com response (`app/profile/github.js`). Raw file fetches from raw.githubusercontent.com don't count against the API limit, so they're left out. The gauge stays empty until the first GitHub profile is built after a pod starts.
 
 ## Import the dashboard
 
