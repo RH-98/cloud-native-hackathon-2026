@@ -112,6 +112,48 @@ function fromInterests(interests, now) {
   };
 }
 
+// ------------------------------------------------------- github + interests
+
+// What the user typed is a strong, deliberate signal: matched tools and
+// languages get at least this weight next to what their repos show.
+const TYPED_WEIGHT = 0.9;
+const MAX_KEYWORDS = 15;
+const MAX_LANGUAGES = 6;
+
+const byWeight = (a, b) => b.weight - a.weight || a.name.localeCompare(b.name);
+
+function boost(list, typed, makeEntry) {
+  const out = (list || []).map((x) => ({ ...x }));
+  for (const t of typed || []) {
+    const hit = out.find((x) => x.name === t.name);
+    if (hit) hit.weight = Math.max(hit.weight || 0, TYPED_WEIGHT);
+    else out.push(makeEntry(t));
+  }
+  return out.sort(byWeight);
+}
+
+// Blends an interests profile into a GitHub profile (pure: neither input is
+// changed). Typed tools and languages are added, or boosted to TYPED_WEIGHT;
+// typed tools carry no repo evidence. Unmatched phrases go first in keywords
+// so they survive the cap.
+function mergeInterests(profile, interestsProfile) {
+  if (!interestsProfile) return { ...profile };
+  return {
+    ...profile,
+    source: 'github+interests',
+    languages: boost(profile.languages, interestsProfile.languages, (l) => ({ name: l.name, weight: TYPED_WEIGHT }))
+      .slice(0, MAX_LANGUAGES),
+    tools: boost(profile.tools, interestsProfile.tools, (t) => ({
+      name: t.name,
+      label: t.label || label(t.name),
+      weight: TYPED_WEIGHT,
+      evidence: [],
+    })).slice(0, MAX_TOOLS),
+    topics: [...(profile.topics || [])],
+    keywords: [...new Set([...(interestsProfile.keywords || []), ...(profile.keywords || [])])].slice(0, MAX_KEYWORDS),
+  };
+}
+
 // --------------------------------------------------------------- github
 
 async function scanRepo(client, repo, state, filesPerRepo) {
@@ -273,16 +315,24 @@ async function fromGithub(username, deps, span) {
 
 // --------------------------------------------------------------- public
 
-// buildProfile({ github } | { interests }, deps?)
+// buildProfile({ github?, interests? }, deps?): at least one of the two.
+// With both, the GitHub profile is built and the interests are blended in
+// (mergeInterests). GitHub errors are thrown as usual; the caller decides
+// whether to fall back to the interests alone.
 // deps (for tests): { fetch, now, cache, token, maxRepos, maxCalls, concurrency, timeoutMs }
 async function buildProfile({ github, interests } = {}, deps = {}) {
   const hasGithub = typeof github === 'string' ? github.trim() !== '' : github != null;
-  const source = hasGithub ? 'github' : 'interests';
+  const hasInterests = interests != null && interests !== '';
+  const source = hasGithub ? (hasInterests ? 'github+interests' : 'github') : 'interests';
   return withSpan('profile.build', { 'profile.source': source }, async (span) => {
     let profile;
     if (hasGithub) {
-      profile = await fromGithub(normalizeUsername(github), deps, span);
-    } else if (interests != null && interests !== '') {
+      const username = normalizeUsername(github);
+      // Check the typed text before spending GitHub calls on it.
+      const typed = hasInterests ? fromInterests(interests, deps.now ? deps.now() : Date.now()) : null;
+      profile = await fromGithub(username, deps, span);
+      if (typed) profile = mergeInterests(profile, typed);
+    } else if (hasInterests) {
       profile = fromInterests(interests, deps.now ? deps.now() : Date.now());
     } else {
       throw new ProfileError('invalid_input', 'Give a GitHub username or some interests');
@@ -292,4 +342,4 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
   });
 }
 
-module.exports = { buildProfile, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };
+module.exports = { buildProfile, mergeInterests, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };

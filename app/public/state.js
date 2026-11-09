@@ -34,6 +34,20 @@ export function saveInputs(inputs, storage = globalThis.localStorage) {
   }
 }
 
+// Warnings from POST /api/plan (docs/CONTRACTS.md): the plan was still built,
+// from less input. Unknown codes are dropped.
+const WARNINGS = {
+  github_rate_limited: 'GitHub is rate limiting us right now, so this route comes only from the interests you typed.',
+  github_not_found: 'We could not find that GitHub user, so this route comes only from the interests you typed.',
+  github_unavailable: 'GitHub did not answer in time, so this route comes only from the interests you typed.',
+};
+
+export function warningMessages(warnings) {
+  return (Array.isArray(warnings) ? warnings : [])
+    .filter((w) => typeof w === 'string' && Object.hasOwn(WARNINGS, w))
+    .map((w) => WARNINGS[w]);
+}
+
 // A slot is identified by its day and start time.
 export function slotKey(date, slot) {
   return `${date}|${slot.start}`;
