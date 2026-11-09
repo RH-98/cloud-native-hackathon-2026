@@ -276,7 +276,7 @@ function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], zone = '',
   for (const slot of freeSlots) {
     const mins = (ms(slot.end) - ms(slot.start)) / MINUTE;
     slot.logistics = logisticsIn(slot, logistics);
-    if (mins >= SHORT_GAP_MINUTES) slot.backups = freeBackups(slot, pool, pickedIds);
+    if (mins >= SHORT_GAP_MINUTES) slot.backups = freeBackups(slot, pool, pickedSessions, gapMs);
     slot.booths = booths
       .filter((b) => b.gap && b.gap.start === slot.start && b.gap.end === slot.end)
       .map(({ sponsor, score, reasons }) => ({ sponsor, score, reasons }));
@@ -315,10 +315,11 @@ function windowFit(session, gap) {
 
 // Up to FREE_BACKUPS sessions on during a free window, best match first even
 // when below the pick floor. Sponsored demos only when nothing else is on.
-function freeBackups(gap, pool, pickedIds) {
+function freeBackups(gap, pool, pickedSessions, gapMs = 0) {
+  const pickedIds = new Set(pickedSessions.map((session) => session.id));
   const fits = [];
   for (const rec of pool) {
-    if (pickedIds.has(rec.session.id)) continue;
+    if (pickedIds.has(rec.session.id) || pickedSessions.some((session) => conflicts(rec.session, session, gapMs))) continue;
     const fit = windowFit(rec.session, gap);
     if (fit) fits.push({ rec, fit });
   }
