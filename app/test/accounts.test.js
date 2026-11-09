@@ -333,7 +333,7 @@ test('LinkedIn-pasted signals can be opted in: derived labels and weights only, 
   let stored = [...app.db.social.values()][0].profile;
   assert.deepEqual(stored, {
     tools: [{ name: 'kubernetes', label: 'Kubernetes', weight: 1 }, { name: 'crossplane', label: 'Crossplane', weight: 0.6 }],
-    languages: [{ name: 'Go', weight: 1 }], topics: ['platform engineering'], keywords: ['aws'],
+    languages: [{ name: 'Go', weight: 1 }], topics: ['platform engineering'], keywords: [],
   });
   for (const s of ['Avery', 'Northwind', 'connections', 'pastedFrom']) assert.ok(!JSON.stringify(stored).includes(s), s);
 
@@ -342,6 +342,7 @@ test('LinkedIn-pasted signals can be opted in: derived labels and weights only, 
   assert.equal((await put({ optIn: true, profile: blended })).status, 200);
   stored = [...app.db.social.values()][0].profile;
   assert.deepEqual(stored.tools.map((x) => x.name), ['kubernetes', 'crossplane', 'argo-cd']);
+  assert.deepEqual(stored.keywords, []);
   assert.ok(!JSON.stringify(stored).includes('octocat/deploy'));
   assert.equal((await put({ optIn: true, profile: { ...blended, username: 'torvalds' } })).status, 403);
   assert.equal((await put({ optIn: true, profile: { ...linkedin, username: 'torvalds' } })).status, 403);

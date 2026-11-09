@@ -189,6 +189,7 @@ function createMeHandler(accounts) {
           throw new HttpError('forbidden', 'You can only opt in with a profile built from your own GitHub account');
         }
         const derived = deriveSocialProfile(profile);
+        if (profile.source !== 'github') derived.keywords = [];
         const signals = derived.tools.length + derived.languages.length + derived.topics.length + derived.keywords.length;
         if (!profile.username && !signals) {
           throw bad('Build a plan from your GitHub, interests or LinkedIn profile first');
