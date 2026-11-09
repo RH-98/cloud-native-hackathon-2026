@@ -1,0 +1,21 @@
+# Gitar turns auto-apply on per pull request. The `gitar-managed` label does
+# that, so this workflow adds it to every new PR. Remove the label from a PR
+# to turn auto-apply off for it.
+name: gitar-auto-apply
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add the gitar-managed label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" -f 'labels[]=gitar-managed' --silent && echo "Labeled $PR_URL"
