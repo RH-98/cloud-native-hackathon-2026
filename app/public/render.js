@@ -1,7 +1,7 @@
 // Builds the profile card and the plan (day tabs + timeline) as DOM nodes.
 // Everything from the API goes in as text nodes, never as HTML.
 // Buttons carry data-action attributes; app.js handles the clicks.
-import { formatDay, formatTimeRange, minutesBetween, safeUrl, timeRangeParts, zoneLongName } from './format.js';
+import { cityOf, formatDateSpan, formatDay, formatTimeRange, minutesBetween, safeUrl, timeRangeParts, zoneLongName } from './format.js';
 
 const MIN_GAP_MINUTES = 15;
 
@@ -41,6 +41,28 @@ export function timeRange(start, end, timeZone, cls = 'when', fullStart = false)
     h('time', { datetime: start }, r.start), '–', h('time', { datetime: end }, r.end), ' ', zone);
 }
 
+// ---------- Conference picker ----------
+
+// One radio card per conference: a real (visually hidden) radio, so arrow
+// keys move between cards, and a label card with the full name and details.
+export function renderConferenceCards(container, conferences, selectedId) {
+  container.replaceChildren(...conferences.map((conf) => {
+    const id = `conf-${conf.id}`;
+    const n = Number(conf.sessionCount);
+    const meta = [
+      formatDateSpan(conf.startDate, conf.endDate),
+      cityOf(conf.location),
+      Number.isFinite(n) && n > 0 ? `${n} session${n === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    return h('div', { class: 'conf' },
+      h('input', { class: 'conf__input', type: 'radio', name: 'conference', id, value: conf.id, checked: conf.id === selectedId }),
+      h('label', { class: 'conf__card', for: id },
+        h('span', { class: 'conf__check', 'aria-hidden': 'true' }),
+        h('span', { class: 'conf__name' }, conf.name),
+        h('span', { class: 'conf__meta' }, meta.map((m) => h('span', {}, m)))));
+  }));
+}
+
 // ---------- Profile ----------
 
 let tipCount = 0;
@@ -59,9 +81,11 @@ function chips(items, cls = 'chip') {
   return h('ul', { class: 'chips' }, items.map((t) => h('li', { class: cls }, t)));
 }
 
-export function renderProfile(section, profile) {
+// notes: warning messages to show above the card (state.warningMessages).
+export function renderProfile(section, profile, notes = []) {
   section.replaceChildren();
-  const isGithub = profile.source === 'github';
+  const blended = profile.source === 'github+interests';
+  const isGithub = profile.source === 'github' || blended;
   const avatarUrl = safeUrl(profile.avatarUrl);
   const name = profile.displayName || profile.username || 'You';
   const avatar = avatarUrl
@@ -73,7 +97,7 @@ export function renderProfile(section, profile) {
     isGithub && profile.username
       ? h('p', { class: 'profile__sub' },
         externalLink(`https://github.com/${encodeURIComponent(profile.username)}`, `@${profile.username}`),
-        ` · scanned ${profile.repoCount ?? 0} public repo${profile.repoCount === 1 ? '' : 's'}`)
+        ` · scanned ${profile.repoCount ?? 0} public repo${profile.repoCount === 1 ? '' : 's'}${blended ? ', plus the interests you typed' : ''}`)
       : h('p', { class: 'profile__sub' }, 'From the interests you typed'));
 
   const blocks = [];
@@ -82,7 +106,9 @@ export function renderProfile(section, profile) {
     if (tools.length) {
       blocks.push(h('div', { class: 'profile__block' },
         h('h3', {}, 'Tools we spotted'),
-        h('p', { class: 'hint' }, 'Focus or hover a tool to see which repos it came from.'),
+        h('p', { class: 'hint' }, blended
+          ? 'Focus or hover a tool to see which repos it came from. Tools without repos are ones you typed.'
+          : 'Focus or hover a tool to see which repos it came from.'),
         h('ul', { class: 'chips' }, tools.map(toolChip))));
     }
     const langs = profile.languages || [];
@@ -112,6 +138,7 @@ export function renderProfile(section, profile) {
 
   section.append(
     h('h2', { id: 'profile-heading', class: 'section-title' }, h('span', { class: 'section-title__step' }, '02'), ' Field notes'),
+    ...notes.map((note) => h('p', { class: 'notice' }, h('strong', {}, 'Heads up: '), note)),
     h('div', { class: 'profile__card' }, h('div', { class: 'profile__head' }, avatar, who), ...blocks));
 }
 

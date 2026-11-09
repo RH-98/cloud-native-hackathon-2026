@@ -14,7 +14,7 @@ const DURATION_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75,
 const PICK_BUCKETS = [0, 1, 2, 4, 6, 8, 10, 15, 20, 30, 50];
 
 const VALUES = {
-  planSource: ['github', 'interests'],
+  planSource: ['github', 'interests', 'github+interests'],
   searchBackend: ['elasticsearch', 'snapshot', 'none'],
   // rejected: the request itself was bad (unknown conference, invalid options).
   outcome: ['ok', 'error', 'rejected'],
