@@ -382,6 +382,30 @@ test('only private, non-fork, non-archived, non-empty repos are picked, newest f
   assert.deepEqual(picked.map((r) => r.full_name), ['a/new', 'a/internal', 'a/old']);
 });
 
+test('repository pagination includes newer repos beyond the first 50 listed', async () => {
+  const firstPage = Array.from({ length: 100 }, (_, i) => ({
+    full_name: `octocat/old-${i}`,
+    private: true,
+    size: 1,
+    pushed_at: '2026-01-01T00:00:00Z',
+  }));
+  const newest = { full_name: 'octocat/newest', private: true, size: 1, pushed_at: '2026-11-01T00:00:00Z' };
+  const requestedPages = [];
+  const fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/user/installations') return Response.json({ installations: [{ id: 7 }] });
+    const page = Number(url.searchParams.get('page'));
+    requestedPages.push(page);
+    return Response.json({ repositories: page === 1 ? firstPage : page === 2 ? [newest] : [] });
+  };
+
+  const repos = await ghApp.listGrantedRepos({ fetch, token: USER_TOKEN });
+  const picked = pickPrivateRepos(repos);
+  assert.deepEqual(requestedPages, [1, 2]);
+  assert.equal(repos.length, 101);
+  assert.equal(picked[0].full_name, newest.full_name);
+});
+
 test('buildPrivateProfile with no private repos makes no GitHub calls', async () => {
   let calls = 0;
   const out = await buildPrivateProfile({ login: 'x', repos: [{ full_name: 'x/pub', private: false, size: 1 }], token: USER_TOKEN }, { fetch: async () => { calls += 1; } });
