@@ -31,8 +31,13 @@ jobs:
         working-directory: app
         run: npm test --if-present
 
-      - name: Smoke test (health endpoints)
+      - name: Smoke test (health endpoints, with OpenTelemetry loaded)
         working-directory: app
+        env:
+          NODE_OPTIONS: --require @opentelemetry/auto-instrumentations-node/register
+          OTEL_TRACES_EXPORTER: none
+          OTEL_METRICS_EXPORTER: none
+          OTEL_LOGS_EXPORTER: none
         run: |
           PORT=8080 node server.js &
           for i in $(seq 1 20); do

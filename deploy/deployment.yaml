@@ -25,13 +25,47 @@ spec:
           env:
             - name: TEAM_NAME
               value: "ryan-hilton-real"
+            # OpenTelemetry: traces, metrics and logs go straight to Dash0.
+            # The auth header lives in the app-credentials Secret, never in git.
+            - name: NODE_OPTIONS
+              value: "--require @opentelemetry/auto-instrumentations-node/register"
+            - name: OTEL_SERVICE_NAME
+              value: "conference-planner"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "https://ingress.us-west-2.aws.dash0.com"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: otel-exporter-otlp-headers
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_NODE_DISABLED_INSTRUMENTATIONS
+              value: "fs"
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "k8s.namespace.name=team-ryan-hilton-real,k8s.pod.name=$(K8S_POD_NAME),k8s.pod.uid=$(K8S_POD_UID),deployment.environment.name=hackathon"
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
             limits:
               cpu: 500m
-              memory: 256Mi
+              # Raised from 256Mi: the OpenTelemetry SDK adds memory overhead.
+              memory: 384Mi
           readinessProbe:
             httpGet:
               path: /readyz
