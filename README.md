@@ -72,6 +72,7 @@ Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before 
 | `github-token` | Fine-grained GitHub token, public repositories read-only, no other permissions. Raises the GitHub API limit from 60 to 5,000 requests/hour |
 | `github-oauth-client-id`, `github-oauth-client-secret` | Optional, for accounts. A GitHub OAuth App (not a GitHub App) with callback URL `https://ryan-hilton-real.cnh.radarhq.io/auth/github/callback`; it only asks for `read:user` |
 | `session-secret` | Optional, for accounts. At least 32 random characters (`openssl rand -hex 32`), signs the short-lived OAuth state cookie |
+| `dash0-web-auth-token` | Optional, for real-user monitoring. A dedicated Dash0 auth token with only the Ingesting permission, used by the browser SDK: visible to browsers by design, so never reuse the backend token |
 | `github-app-client-id`, `github-app-client-secret` | Optional, for private repos. The OAuth client of a **GitHub App** (not an OAuth App) with Repository permissions Contents: read-only and Metadata: read-only, "Request user authorization (OAuth) during installation" on, no webhook, callback URL `https://ryan-hilton-real.cnh.radarhq.io/auth/github-app/callback` |
 
 ```bash
@@ -98,6 +99,8 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `DATABASE_URL` | Secret `db-app`, key `uri` (made by CloudNativePG for Cluster `db` in [`deploy/postgres.yaml`](deploy/postgres.yaml); optional) | Postgres for accounts: users, hashed sessions, saved plans and social opt-ins. Never GitHub access tokens or code. `/readyz` doesn't depend on it |
 | `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
 | `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |
+| `DASH0_WEB_AUTH_TOKEN` | Secret `app-credentials`, key `dash0-web-auth-token` (optional) | Turns on the Dash0 Web SDK in the browser; `GET /config.js` hands it to the page. Unset (local dev, CI) means no RUM |
+| `DASH0_WEB_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Where the browser sends RUM telemetry (also allowed in the CSP's `connect-src`) |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP over HTTP |
@@ -223,6 +226,8 @@ Re-running the loader with `--force` reloads the bundled snapshot over these upd
 ## Observability (Dash0)
 
 The app sends traces, metrics and logs over OTLP to Dash0, as service `conference-planner`; the loader Job reports as `conference-loader`.
+
+**Real-user monitoring:** the Dash0 Web SDK ([`app/public/rum.js`](app/public/rum.js), served from our own origin at `/vendor/dash0-sdk-web.js`) reports page views, Web Vitals, errors and fetches as service `switchback-web`, linked to backend traces through the `traceparent` header on same-origin requests.
 
 **Spans:** HTTP and outbound calls come from the Node auto-instrumentation. On top of those, the app adds its own spans: `plan.build`, `es.search_sessions`, `es.search_sponsors`, `es.search_attendees`, and for the loaders, `es.ensure_indices`, `es.load_snapshot`, `es.ensure_attendees_index`, `es.load_attendees` and `es.bulk`. A plan that falls back to the snapshot records a `search_fallback` event on `plan.build`.
 
