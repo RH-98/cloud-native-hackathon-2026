@@ -24,7 +24,7 @@ const KEYWORD_STOPLIST = new Set([
   'required', 'require', 'requires', 'deploy', 'deploying', 'deployed', 'run', 'running', 'use', 'using', 'used',
   'based', 'make', 'making', 'way', 'get', 'getting', 'set', 'setup', 'start', 'started', 'learn', 'learning',
   'guide', 'tutorial', 'hello', 'world', 'basic', 'basics', 'support', 'supports', 'create', 'creating',
-  'manage', 'managing', 'small', 'large', 'modern', 'native', 'cloud native', 'nowhere', 'deploy nowhere',
+  'manage', 'managing', 'small', 'large', 'modern', 'nowhere', 'deploy nowhere',
   'program', 'tracker', 'life', 'skills', 'life skills', 'tips', 'notes', 'personal', 'website', 'blog', 'site',
   'source', 'release', 'releases', 'version', 'versions', 'update', 'updates', 'feature', 'features',
 ]);
