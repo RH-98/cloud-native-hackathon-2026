@@ -352,6 +352,16 @@ test('github + interests: builds the GitHub profile and blends the interests in'
   assert.ok(p.tools.length <= 15);
 });
 
+test('github + interests: ignores interests that contain no phrases', async () => {
+  const fake = fakeGithub();
+  const p = await buildProfile({ github: 'octo-dev', interests: ',;|' }, deps(fake));
+  assert.equal(p.source, 'github');
+  assert.equal(p.username, 'octo-dev');
+  assert.equal(p.repoCount, 3);
+
+  await assert.rejects(buildProfile({ interests: ',;|' }), { code: 'invalid_input' });
+});
+
 test('github + interests: a GitHub error is thrown for the caller to fall back on', async () => {
   const fake = fakeGithub({ rateLimitApiAfter: 0 });
   await assert.rejects(buildProfile({ github: 'octo-dev', interests: 'rust' }, deps(fake)), { code: 'rate_limited' });
