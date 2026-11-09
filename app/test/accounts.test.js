@@ -346,6 +346,20 @@ test('LinkedIn-pasted signals can be opted in: derived labels and weights only, 
   assert.equal((await put({ optIn: true, profile: { ...blended, username: 'torvalds' } })).status, 403);
   assert.equal((await put({ optIn: true, profile: { ...linkedin, username: 'torvalds' } })).status, 403);
   assert.equal(app.db.social.size, 1);
+
+  // Typed interests (or a paste the parser didn't recognise) keep phrases verbatim
+  // as keywords: those are not stored, only the catalog matches.
+  const typed = {
+    source: 'interests', username: null,
+    tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1, evidence: [] }], languages: [], topics: [],
+    keywords: ['avery quill', 'senior platform engineer at northwind', '500+ connections'],
+  };
+  assert.equal((await put({ optIn: true, profile: typed })).status, 200);
+  stored = [...app.db.social.values()][0].profile;
+  assert.deepEqual(stored.keywords, []);
+  assert.ok(!JSON.stringify(stored).includes('avery') && !JSON.stringify(stored).includes('northwind'));
+  // Nothing left to match on: refused.
+  assert.equal((await put({ optIn: true, profile: { ...typed, tools: [] } })).status, 400);
 });
 
 test('deriveSocialProfile caps list sizes and clamps weights', () => {
