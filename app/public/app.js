@@ -412,6 +412,7 @@ async function init() {
   el.exportIcs.addEventListener('click', exportIcs);
   el.copyText.addEventListener('click', copyText);
   el.resetChoices.addEventListener('click', () => {
+    if (state.loading || !state.request) return;
     state.pinned.clear();
     state.skipped.clear();
     state.swaps.clear();
