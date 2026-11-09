@@ -14,11 +14,11 @@ function loadSnapshot(conferenceId) {
 }
 
 function terms(profile) {
-  return [
+  return [...new Set([
     ...profile.tools.map((t) => t.name),
     ...profile.topics,
     ...profile.keywords,
-  ].map((t) => t.toLowerCase().replace(/-/g, ' '));
+  ].map((t) => t.toLowerCase().replace(/-/g, ' ')))];
 }
 
 function recommend(session, words) {
