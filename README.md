@@ -83,6 +83,21 @@ cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:
 | `ELASTICSEARCH_API_KEY` | Secret `app-credentials`, key `elasticsearch-api-key` | Elasticsearch auth |
 | `OTEL_SERVICE_NAME` | `conference-loader` | The loader's traces show in Dash0 under this name |
 
+## Suggested connections
+
+The planner can suggest people to meet: other attendees whose tools and topics overlap with your profile, with a one-line reason ("You both work with Argo CD and Crossplane") and the sessions you'll both be at.
+
+- **Opt-in only.** Only attendees with `optIn: true` are ever suggested, and a match shows only the public tools and topics you both list, never anything else from their profile or yours. Your profile is used for the request and not stored.
+- **The attendees are fictional demo data.** [`app/data/attendees/kubecon-na-2026.json`](app/data/attendees/kubecon-na-2026.json) holds 64 invented people (handles start with `demo-`, companies are generic like "a fintech"), generated deterministically by `npm run generate:attendees` ([`app/scripts/generate-fake-attendees.js`](app/scripts/generate-fake-attendees.js)). A few have opted out, to prove the filter.
+- **How it matches.** With Elasticsearch configured, `conference-attendees` is searched with the opt-in filter and reciprocal rank fusion of tag overlap (tools, topics, languages) and semantic similarity (a summary of the interests, embedded like the sessions); if the cluster rejects the `rrf` retriever, the two result lists are fused in the app. Without Elasticsearch, or if it fails, [`app/social/match.js`](app/social/match.js) scores the snapshot in memory (weighted cosine: tools > topics > languages > keywords, a boost for a maintainer of something a first-timer shares, and for sessions in common).
+- **API.** `POST /api/connections` with `{ "conferenceId", "profile", "pickedSessionIds"?, "limit"?, "firstTimer"? }` returns `{ "connections": [{ "attendee": { displayName, handle, role, bio }, score, shared, why, commonSessions }], "searchBackend", "demoData": true }`.
+
+Load the attendees into Elasticsearch with the one-off Job (`kubectl create -f jobs/load-attendees.yaml`, same Secret as the session loader) or locally:
+
+```bash
+cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:attendees
+```
+
 ## AI usage
 
 This project is built with AI coding assistance: Claude Code (Anthropic) helps write code, configuration and docs, and Gitar reviews pull requests and fixes CI failures. Every change is reviewed and understood by the team before it merges.

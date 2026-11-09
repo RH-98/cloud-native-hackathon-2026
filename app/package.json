@@ -8,7 +8,9 @@
     "start": "node server.js",
     "test": "node --test",
     "import:kubecon": "node scripts/import-kubecon-na-2026.js",
-    "load:es": "node scripts/load-elasticsearch.js"
+    "load:es": "node scripts/load-elasticsearch.js",
+    "load:attendees": "node scripts/load-attendees.js",
+    "generate:attendees": "node scripts/generate-fake-attendees.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.5.1",
