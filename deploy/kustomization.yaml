@@ -15,4 +15,4 @@ resources:
 images:
   - name: app
     newName: ghcr.io/rh-98/cloud-native-hackathon-2026
-    newTag: "3e0c9a3"
+    newTag: "5a198c1"
