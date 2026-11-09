@@ -49,7 +49,8 @@ export function derivedInterests(profile) {
   const words = [
     ...tools.map((t) => t.label || t.name),
     ...(blended ? [] : (profile.languages || []).map((l) => l.name)),
-    ...(profile.topics || []),
+    // Blended: only the paste's own topics (GitHub repo topics would come back as typed tools).
+    ...(blended ? (profile.pastedTopics || []) : (profile.topics || [])),
     ...(blended ? [] : (profile.keywords || [])),
   ].filter((w) => typeof w === 'string' && w);
   let out = '';
