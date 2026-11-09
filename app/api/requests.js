@@ -124,7 +124,6 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
       id: r.id,
       conferenceId: r.conferenceId,
       direction: outgoing ? 'outgoing' : 'incoming',
-      // A decline stays "pending" for the sender.
       status: hideDecline ? 'pending' : r.status,
       createdAt: r.createdAt,
       updatedAt: hideDecline ? r.createdAt : r.updatedAt,
