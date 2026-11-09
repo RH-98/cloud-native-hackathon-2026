@@ -1,0 +1,29 @@
+[
+  {
+    "name": "argo-cd",
+    "full_name": "argoproj/argo-cd",
+    "private": false,
+    "topics": ["argo-cd", "gitops", "kubernetes"],
+    "description": "Declarative Continuous Deployment for Kubernetes",
+    "language": "Go",
+    "pushed_at": "2026-11-08T10:00:00Z"
+  },
+  {
+    "name": "cilium",
+    "full_name": "cilium/cilium",
+    "private": false,
+    "topics": ["ebpf", "networking"],
+    "description": "eBPF-based Networking, Security, and Observability",
+    "language": "Go",
+    "pushed_at": "2026-11-08T10:00:00Z"
+  },
+  {
+    "name": "site-gen",
+    "full_name": "someone/site-gen",
+    "private": false,
+    "topics": [],
+    "description": "A static site generator",
+    "language": "Ruby",
+    "pushed_at": "2024-01-01T10:00:00Z"
+  }
+]
