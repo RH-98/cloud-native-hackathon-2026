@@ -4,8 +4,8 @@
 name: gitar-auto-apply
 
 on:
-  pull_request:
-    types: [opened, reopened]
+  pull_request_target:
+    types: [opened]
 
 permissions:
   pull-requests: write
