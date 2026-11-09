@@ -388,3 +388,25 @@ test('buildPrivateProfile with no private repos makes no GitHub calls', async ()
   assert.deepEqual(out, { tools: [], languages: [], repoCount: 0 });
   assert.equal(calls, 0);
 });
+
+test('private-scan requests are marked so the automatic HTTP spans skip their URLs', async () => {
+  const { isPrivateRequest } = require('../telemetry');
+  assert.equal(isPrivateRequest({ headers: 'accept: x\r\nx-switchback-private: 1\r\n' }), true);
+  assert.equal(isPrivateRequest({ headers: ['accept', 'x', 'X-Switchback-Private', '1'] }), true);
+  assert.equal(isPrivateRequest({ headers: 'accept: x\r\n' }), false);
+  assert.equal(isPrivateRequest({}), false);
+
+  const app = await start();
+  try {
+    const session = await signIn(app);
+    await callback(app, session, await beginApp(app, session));
+    const scanCalls = app.github.calls.filter((c) => c.url.includes('/user/installations') || c.url.includes('/repos/'));
+    assert.ok(scanCalls.length >= 3);
+    for (const c of scanCalls) {
+      const h = c.init.headers || {};
+      assert.equal(h['x-switchback-private'] || h['X-Switchback-Private'], '1', c.url.replace(/repos\/[^?]*/, 'repos/…'));
+    }
+  } finally {
+    await app.close();
+  }
+});

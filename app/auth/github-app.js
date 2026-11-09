@@ -59,6 +59,7 @@ async function getJson(fetch, token, path, span) {
       authorization: `Bearer ${token}`,
       'user-agent': 'switchback-planner',
       'x-github-api-version': '2022-11-28',
+      'x-switchback-private': '1', // no automatic HTTP span with the URL (app/telemetry.js)
     },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });

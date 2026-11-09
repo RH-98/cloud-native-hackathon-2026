@@ -58,6 +58,8 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
     if (auth) {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
       if (token) headers.Authorization = `Bearer ${token}`;
+      // Private repos: no automatic HTTP span with the URL (see app/telemetry.js).
+      if (contentsApi) headers['X-Switchback-Private'] = '1';
     }
     let res;
     try {
