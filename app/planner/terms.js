@@ -176,6 +176,12 @@ const TIER_RANK = {
   'Start-up': 2,
   'End User': 1,
   'Media Partners': 0,
+  // Convergence 2026's tiers
+  Title: 6,
+  Premier: 5,
+  Strategic: 4,
+  Supporting: 3,
+  Impact: 2,
 };
 
 function tierRank(tier) {
