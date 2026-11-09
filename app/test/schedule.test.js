@@ -150,14 +150,19 @@ test('overlay: liveSnapshot reads the latest changes on every call, and falls ba
   assert.equal(await liveSnapshot(snapshot, broken), snapshot);
 
   let changes = [];
+  let searches = 0;
   const client = {
-    search: async () => ({ hits: { hits: changes.map((c) => ({ _source: c })) } }),
+    search: async () => {
+      searches += 1;
+      return { hits: { hits: changes.map((c) => ({ _source: c })) } };
+    },
     get: async () => ({ _source: {} }),
   };
   assert.equal(await liveSnapshot(snapshot, client), snapshot);
   // A change recorded right after the first plan shows up in the very next one.
   changes = [{ sessionId: 'kubecon-na-2026:1', type: 'cancelled', detectedAt: '2026-11-09T21:00:00Z', after: null }];
   assert.deepEqual((await liveSnapshot(snapshot, client)).sessions, []);
+  assert.equal(searches, 2);
 });
 
 // --- Elasticsearch helpers ----------------------------------------------------------

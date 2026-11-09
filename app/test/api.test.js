@@ -97,7 +97,8 @@ test('POST /api/plan validates input', async (t) => {
   t.after(app.close);
   const cases = [
     { conferenceId: 'kubecon-na-2026' },
-    { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'rust' },
+    { conferenceId: 'kubecon-na-2026', github: '', interests: '' },
+    { conferenceId: 'kubecon-na-2026', github: 'not a user!', interests: 'rust' },
     { conferenceId: 'Bad Id!', github: 'octocat' },
     { conferenceId: 'kubecon-na-2026', github: '-octocat' },
     { conferenceId: 'kubecon-na-2026', github: 'a'.repeat(40) },
@@ -191,4 +192,61 @@ test('unknown API routes are JSON 404s', async (t) => {
   const res = await fetch(`${app.base}/api/nope`);
   assert.equal(res.status, 404);
   assert.equal((await res.json()).error.code, 'not_found');
+});
+
+test('POST /api/plan accepts a GitHub username and interests together', async (t) => {
+  const seen = [];
+  const app = await start({
+    buildProfile: async (input) => {
+      seen.push(input);
+      return { source: 'github+interests', username: 'octocat', tools: [], languages: [], topics: [], keywords: ['chess'] };
+    },
+  });
+  t.after(app.close);
+  const res = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'rust, chess', options: { days: ['2026-11-10'] } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.profile.source, 'github+interests');
+  assert.equal(body.warnings, undefined);
+  assert.deepEqual(seen, [{ github: 'octocat', interests: 'rust, chess' }]);
+  assert.deepEqual(validatePlanRequest({ conferenceId: 'kubecon-na-2026', github: 'octocat', interests: ' rust ' }), {
+    conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'rust', options: {},
+  });
+});
+
+test('with both inputs, a GitHub failure falls back to the interests with a warning', async (t) => {
+  const expected = { rate_limited: 'github_rate_limited', not_found: 'github_not_found', upstream: 'github_unavailable' };
+  for (const [code, warning] of Object.entries(expected)) {
+    const seen = [];
+    const app = await start({
+      buildProfile: async (input) => {
+        seen.push(input);
+        if (input.github) throw new ProfileError(code, `github says ${code}`);
+        return buildProfile(input);
+      },
+    });
+    const res = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'argo cd, rust', options: { days: ['2026-11-10'] } });
+    assert.equal(res.status, 200, code);
+    const body = await res.json();
+    assert.deepEqual(body.warnings, [warning]);
+    assert.equal(body.profile.source, 'interests');
+    assert.ok(body.profile.tools.some((tool) => tool.name === 'argo-cd'));
+    assert.deepEqual(seen, [{ github: 'octocat', interests: 'argo cd, rust' }, { interests: 'argo cd, rust' }]);
+    await app.close();
+  }
+  // Interests with nothing usable: the GitHub error, not a confusing 400.
+  const punct = await start({
+    buildProfile: async (input) => {
+      if (input.github) throw new ProfileError('rate_limited', 'GitHub rate limit reached');
+      return buildProfile(input);
+    },
+  });
+  const punctRes = await postPlan(punct.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: ',' });
+  assert.equal(punctRes.status, 429);
+  await punct.close();
+  // Other errors are not swallowed, and GitHub alone still fails as before.
+  const app = await start({ buildProfile: async () => { throw new ProfileError('invalid_input', 'nope'); } });
+  t.after(app.close);
+  const res = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'rust' });
+  assert.equal(res.status, 400);
 });
