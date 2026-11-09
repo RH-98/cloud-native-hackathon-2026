@@ -55,7 +55,8 @@ test('saved blended profiles retain typed tools without copying GitHub-derived s
   };
   const saved = snapshotState(s);
 
-  assert.equal(saved.request.interests, 'Typed tool');
+  // Topics are kept in blended mode too (they are not weight-boosted); GitHub tools, languages and keywords are not.
+  assert.equal(saved.request.interests, 'Typed tool, GitHub topic, typed topic');
   assert.equal(derivedInterests({ source: 'github', tools: [], languages: [{ name: 'Go' }], topics: ['cloud'], keywords: ['operators'] }), 'Go, cloud, operators');
 });
 
