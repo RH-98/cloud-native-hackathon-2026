@@ -22,7 +22,7 @@ function searchSessions(snapshot, { conferenceId, profile, days, levels, size = 
     if (!matches.length) continue;
     results.push({
       session,
-      score: Math.round(terms.lexicalScore(matches) * 1000) / 1000,
+      score: terms.sessionScore(session, matches),
       reasons: terms.sessionReasons(session, matches),
     });
   }

@@ -1,0 +1,134 @@
+{
+  "sessions": [
+    {
+      "id": "1293020",
+      "title": "Revolutionizing Finance:  Harnessing the Latest Innovations",
+      "description": "Join Marco and Lone as we explore the newest innovations.\r\n\r\nIn this session we look at AI agents.",
+      "startsAt": "2026-12-09T10:30:00",
+      "endsAt": "2026-12-09T11:30:00",
+      "isServiceSession": false,
+      "isPlenumSession": false,
+      "speakers": ["f8dea44f-b975-4293-a1c3-622d185a5f9f", "81197220-3ceb-463a-ade0-ce0675480232"],
+      "categoryItems": [485770, 485830, 485826, 490044, 900001],
+      "questionAnswers": [],
+      "roomId": 88976,
+      "liveUrl": null,
+      "recordingUrl": null,
+      "status": "Accepted",
+      "isInformed": true,
+      "isConfirmed": true
+    },
+    {
+      "id": "1300001",
+      "title": "Fast Track: Upgrades",
+      "description": "",
+      "startsAt": "2026-12-10T13:30:00",
+      "endsAt": "2026-12-10T14:15:00",
+      "isServiceSession": false,
+      "isPlenumSession": false,
+      "speakers": ["81197220-3ceb-463a-ade0-ce0675480232"],
+      "categoryItems": [490040, 485801],
+      "questionAnswers": [],
+      "roomId": 88513,
+      "liveUrl": null,
+      "recordingUrl": null,
+      "status": "Accepted",
+      "isInformed": true,
+      "isConfirmed": true
+    },
+    {
+      "id": "d2be0622-64ca-4895-8cc6-74a258af626d",
+      "title": "KEYNOTE",
+      "description": "TBD",
+      "startsAt": "2026-12-09T08:30:00",
+      "endsAt": "2026-12-09T10:00:00",
+      "isServiceSession": true,
+      "isPlenumSession": false,
+      "speakers": [],
+      "categoryItems": [],
+      "questionAnswers": [],
+      "roomId": 88996,
+      "liveUrl": null,
+      "recordingUrl": null,
+      "status": null,
+      "isInformed": false,
+      "isConfirmed": false
+    },
+    {
+      "id": "14ba9cb0-6812-4373-88c2-dd855f5ef206",
+      "title": "LUNCH BREAK",
+      "description": null,
+      "startsAt": "2026-12-09T11:30:00",
+      "endsAt": "2026-12-09T12:30:00",
+      "isServiceSession": true,
+      "isPlenumSession": false,
+      "speakers": [],
+      "categoryItems": [],
+      "questionAnswers": [],
+      "roomId": 88996,
+      "liveUrl": null,
+      "recordingUrl": null,
+      "status": null,
+      "isInformed": false,
+      "isConfirmed": false
+    },
+    {
+      "id": "1371589",
+      "title": "Not scheduled yet",
+      "description": "No time slot, so it can't be planned.",
+      "startsAt": null,
+      "endsAt": null,
+      "isServiceSession": false,
+      "isPlenumSession": false,
+      "speakers": [],
+      "categoryItems": [485830],
+      "questionAnswers": [],
+      "roomId": null,
+      "liveUrl": null,
+      "recordingUrl": null,
+      "status": "Accepted",
+      "isInformed": true,
+      "isConfirmed": true
+    }
+  ],
+  "speakers": [
+    { "id": "f8dea44f-b975-4293-a1c3-622d185a5f9f", "firstName": "Lone", "lastName": "Gru", "fullName": "Lone Gru" },
+    { "id": "81197220-3ceb-463a-ade0-ce0675480232", "firstName": " Marco", "lastName": "Smits", "fullName": " Marco Smits" }
+  ],
+  "questions": [],
+  "categories": [
+    { "id": 134236, "title": "Session Type", "items": [{ "id": 485770, "name": "Functional", "sort": 0 }], "sort": 1, "type": "session" },
+    {
+      "id": 135318,
+      "title": "Product Team",
+      "items": [{ "id": 490040, "name": "Fast Track", "sort": 0 }],
+      "sort": 2,
+      "type": "session"
+    },
+    {
+      "id": 134248,
+      "title": "Primary Product",
+      "items": [
+        { "id": 485830, "name": "AI", "sort": 0 },
+        { "id": 485826, "name": "Finance", "sort": 1 }
+      ],
+      "sort": 3,
+      "type": "session"
+    },
+    {
+      "id": 134238,
+      "title": "Session Topic/Category (Technical)",
+      "items": [{ "id": 485801, "name": "Sponsor Showcase", "sort": 0 }],
+      "sort": 4,
+      "type": "session"
+    },
+    { "id": 135319, "title": "Speaker type", "items": [{ "id": 490044, "name": "Community", "sort": 0 }], "sort": 5, "type": "session" },
+    { "id": 900000, "title": "Level", "items": [{ "id": 900001, "name": "Introductory and overview", "sort": 0 }], "sort": 6, "type": "session" },
+    { "id": 134237, "title": "Badges", "items": [{ "id": 485776, "name": "Microsoft MVP", "sort": 0 }], "sort": 7, "type": "speaker" }
+  ],
+  "rooms": [
+    { "id": 88513, "name": "Splash 1-2", "sort": 0 },
+    { "id": 88976, "name": "Splash 9", "sort": 4 },
+    { "id": 88996, "name": "Glimmer", "sort": 10 }
+  ]
+}
