@@ -4,6 +4,7 @@
 import { initAccount, notifyPlanChanged } from './account.js';
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
+import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
 import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
@@ -38,6 +39,14 @@ const el = {
   copyText: $('#copy-text'),
   resetChoices: $('#reset-choices'),
 };
+
+// Live schedule changes for the plan on screen (changes.js).
+const changeWatch = createChangeWatch({
+  container: $('#changes'),
+  announce,
+  swap: onSwap,
+  replan: (opts) => loadPlan(state.request, opts),
+});
 
 // ---------- Announcements and errors ----------
 
@@ -202,6 +211,7 @@ function showPlan({ focusKey } = {}) {
   el.planMeta.textContent = planMeta(state.plan);
   state.activeDay = renderPlan(el.planDays, state.plan, state.activeDay);
   el.resetChoices.hidden = !(state.pinned.size || state.skipped.size || state.swaps.size);
+  changeWatch.planShown();
   // A function picks the key from the new plan (the slot to focus may have moved).
   if (typeof focusKey === 'function') focusKey = focusKey(state.plan);
   if (focusKey) {

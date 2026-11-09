@@ -45,6 +45,15 @@ export function requestPlan(body) {
   });
 }
 
+// Schedule changes for the sessions in a plan (GET /api/changes).
+// { conferenceId, since: ISO string, sessionIds: string[] (max 200) } -> { changes, checkedAt }
+export function fetchChanges({ conferenceId, since, sessionIds }) {
+  const params = new URLSearchParams({ conferenceId });
+  if (since) params.set('since', since);
+  if (sessionIds?.length) params.set('sessionIds', sessionIds.join(','));
+  return call(`/api/changes?${params}`);
+}
+
 // "People to meet" (demo attendees). body: { conferenceId, profile,
 // pickedSessionIds, limit, firstTimer }. Callers hide the panel on any error.
 export function requestConnections(body) {
