@@ -31,19 +31,47 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | Variable | Value / source | Purpose |
 |---|---|---|
 | `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
-| `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
+| `TEAM_NAME` | `ryan-hilton-real` | Team name (not currently shown in the UI) |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
-| `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour) |
-| `NODE_OPTIONS` | `--require @opentelemetry/auto-instrumentations-node/register` | Loads OpenTelemetry auto-instrumentation |
+| `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour). A profile uses about 10 API calls (user, repo list, one tree per repo, up to 8 repos); dependency files, manifests and READMEs come from `raw.githubusercontent.com`, which doesn't count against the API limit and never receives the token. Profiles are cached in memory for 15 minutes |
+| `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
+| `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP over HTTP |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Secret `app-credentials` | Dash0 auth header |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces and metrics; logs explicitly emitted through the OpenTelemetry Logs API are exported (plain `console.log` is not instrumented) |
-| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans (`telemetry.js` also turns them off) |
+| `OTEL_NODE_RESOURCE_DETECTORS` | `env,host,os,process,serviceinstance` | Skip the cloud metadata detectors (GCP, AWS, Azure): the nodes are shared host nodes. `telemetry.js` uses the same list when this is unset |
+| `OTEL_LOG_LEVEL` | Unset | Optional. Set to `debug`, `info`, `warn` or `error` to print the OpenTelemetry SDK's own diagnostics (`telemetry.js` reads it) |
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 
-To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`.
+To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`. To see spans locally, run `OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none node --require ./telemetry.js server.js` in `app/`. With no `OTEL_EXPORTER_OTLP_*ENDPOINT` and no `OTEL_*_EXPORTER` set, `telemetry.js` leaves OpenTelemetry off, so local runs don't retry `localhost:4318`.
+
+### Hardening
+
+These settings answer Radar's Checks for `Deployment/app`:
+
+| Check | Fix | Why it's safe |
+|---|---|---|
+| `automountServiceAccountToken` | `automountServiceAccountToken: false` on the pod spec | The app never calls the Kubernetes API |
+| `readOnlyRootFs` | `readOnlyRootFilesystem: true`, plus a 64Mi `emptyDir` at `/tmp` | Nothing writes to disk at runtime: dependencies are installed at build time, and OpenTelemetry exports over the network |
+| `missingPDB` | [`deploy/pdb.yaml`](deploy/pdb.yaml), `minAvailable: 1` | Drains evict one of the 2 replicas at a time |
+| `missingTopologySpread` | `topologySpreadConstraints` on `kubernetes.io/hostname`, `whenUnsatisfiable: ScheduleAnyway` | Prefers spreading the replicas across nodes, but never blocks scheduling on the shared vcluster nodes |
+
+## The app: Switchback
+
+The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/public/) with no build step, served by `app/server.js` (`node:http`). Open http://localhost:8080 after `npm start`; it works offline with no credentials (the planner falls back to the snapshot).
+
+| Path | What it is |
+|---|---|
+| `app/server.js`, `app/api/` | HTTP routes: `GET /api/conferences`, `POST /api/plan` (shapes in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)), static files with a strict CSP, `/healthz`, `/readyz` |
+| `app/public/index.html`, `styles.css` | The page. Every color, font and spacing value is a CSS custom property at the top of `styles.css`, light and dark |
+| `app/public/app.js` | Wires the form, plan actions (swap, pin, skip, day tabs) and exports |
+| `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
+| `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
+
+The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` (see [Suggested connections](#suggested-connections)) and hides itself if that route isn't there.
 
 ## Conference data
 

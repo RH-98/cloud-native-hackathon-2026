@@ -3,7 +3,12 @@
 // Response: { connections: [{ attendee: { displayName, handle, role, bio }, score, shared, why,
 //             commonSessions: [{ id, title, start }] }], searchBackend, demoData: true }
 // The profile is used for this request only; it is never stored or logged.
+const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const { suggestConnections } = require('../social');
+const { HttpError, sendJson, sendError, readJsonBody } = require('./http');
+
+// A GitHub profile with tool evidence plus a day's picks fits well within this.
+const BODY_LIMIT = 64 * 1024;
 
 const MAX_TERMS = 100;
 const MAX_TERM_LENGTH = 100;
@@ -74,4 +79,28 @@ async function handleConnections(body, deps = {}) {
   };
 }
 
-module.exports = { handleConnections, cleanProfile };
+// HTTP adapter for the router. deps go to handleConnections (tests pass fakes).
+function createConnectionsHandler(deps = {}) {
+  return async function serveConnections(req, res) {
+    const span = trace.getActiveSpan();
+    try {
+      const body = await readJsonBody(req, BODY_LIMIT);
+      const { status, json } = await handleConnections(body, deps);
+      span?.setAttributes({
+        'connections.count': json.connections ? json.connections.length : 0,
+        'connections.backend': json.searchBackend || 'none',
+      });
+      if (json.error) return sendError(res, json.error.code, json.error.message);
+      return sendJson(res, status, json);
+    } catch (err) {
+      if (err instanceof HttpError) return sendError(res, err.code, err.message);
+      span?.recordException(err);
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: 'unexpected error in /api/connections' });
+      // Name and message only: never the request body (it holds the profile).
+      console.error(`POST /api/connections failed: ${err && err.name}: ${err && err.message}`);
+      return sendError(res, 'internal', 'Something went wrong on our side. Try again in a moment.');
+    }
+  };
+}
+
+module.exports = { handleConnections, cleanProfile, createConnectionsHandler, BODY_LIMIT };

@@ -1,0 +1,15 @@
+{
+  "sha": "abc",
+  "truncated": false,
+  "tree": [
+    { "path": "README.md", "type": "blob", "size": 900 },
+    { "path": "go.mod", "type": "blob", "size": 400 },
+    { "path": "Dockerfile", "type": "blob", "size": 200 },
+    { "path": "deploy", "type": "tree" },
+    { "path": "deploy/rollout.yaml", "type": "blob", "size": 700 },
+    { "path": "deploy/kustomization.yaml", "type": "blob", "size": 100 },
+    { "path": "charts/app/Chart.yaml", "type": "blob", "size": 150 },
+    { "path": ".github/workflows/ci.yml", "type": "blob", "size": 300 },
+    { "path": "vendor/github.com/x/y/api.proto", "type": "blob", "size": 50 }
+  ]
+}

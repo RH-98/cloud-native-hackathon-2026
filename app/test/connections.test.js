@@ -109,3 +109,75 @@ test('falls back to the in-memory matcher when Elasticsearch fails', async () =>
   assert.equal(res.json.searchBackend, 'snapshot');
   assert.ok(res.json.connections.length > 0);
 });
+
+// --- POST /api/connections through the router ------------------------------
+const http = require('node:http');
+const { createHandler } = require('../api/router');
+
+async function startApp(connections = { env: {}, logger: quietLogger }) {
+  const handler = createHandler({ buildProfile: async () => ({}), buildPlan: async () => ({}), connections });
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  return { base, close: () => new Promise((resolve) => server.close(resolve)) };
+}
+
+function post(base, body, headers = { 'content-type': 'application/json' }) {
+  const payload = typeof body === 'string' ? body : JSON.stringify(body);
+  return fetch(`${base}/api/connections`, { method: 'POST', headers, body: payload });
+}
+
+test('POST /api/connections returns opted-in demo matches as JSON', async (t) => {
+  const app = await startApp();
+  t.after(app.close);
+  // The body the UI sends.
+  const res = await post(app.base, {
+    conferenceId: 'kubecon-na-2026',
+    profile,
+    pickedSessionIds: [],
+    limit: 5,
+    firstTimer: false,
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^application\/json/);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const body = await res.json();
+  assert.equal(body.demoData, true);
+  assert.equal(body.connections.length, 5);
+  assert.deepEqual(Object.keys(body.connections[0].attendee).sort(), ['bio', 'displayName', 'handle', 'role']);
+});
+
+test('POST /api/connections answers errors in the contract format', async (t) => {
+  const app = await startApp();
+  t.after(app.close);
+  const tooBig = JSON.stringify({ conferenceId: 'kubecon-na-2026', profile, pad: 'x'.repeat(70 * 1024) });
+  const cases = [
+    [await post(app.base, { conferenceId: 'kubecon-na-2026' }), 400, 'invalid_input'],
+    [await post(app.base, '{not json'), 400, 'invalid_input'],
+    [await post(app.base, { conferenceId: 'no-such-conf', profile }), 404, 'not_found'],
+    [await post(app.base, '{}', { 'content-type': 'text/plain' }), 415, 'unsupported_media_type'],
+    [await post(app.base, tooBig), 413, 'payload_too_large'],
+    [await fetch(`${app.base}/api/connections`), 405, 'method_not_allowed'],
+  ];
+  for (const [res, status, code] of cases) {
+    assert.equal(res.status, status, code);
+    assert.equal((await res.json()).error.code, code);
+  }
+});
+
+test('POST /api/connections hides unexpected errors behind a generic 500', async (t) => {
+  // Malformed attendee data makes the matcher throw.
+  const app = await startApp({ env: {}, logger: quietLogger, attendees: 42 });
+  t.after(app.close);
+  const original = console.error;
+  const logged = [];
+  console.error = (line) => logged.push(line);
+  t.after(() => {
+    console.error = original;
+  });
+  const res = await post(app.base, { conferenceId: 'kubecon-na-2026', profile });
+  assert.equal(res.status, 500);
+  assert.equal((await res.json()).error.code, 'internal');
+  // The log line never includes the request body (the profile).
+  assert.ok(logged.every((line) => !String(line).includes('private/repo-name')));
+});

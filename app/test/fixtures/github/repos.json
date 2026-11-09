@@ -1,0 +1,67 @@
+[
+  {
+    "name": "web-ui",
+    "full_name": "octo-dev/web-ui",
+    "fork": false,
+    "archived": false,
+    "private": false,
+    "size": 120,
+    "language": "TypeScript",
+    "topics": ["opentelemetry", "dashboard"],
+    "description": "Dashboard for progressive delivery metrics",
+    "default_branch": "main",
+    "pushed_at": "2026-11-01T10:00:00Z"
+  },
+  {
+    "name": "deploy-stack",
+    "full_name": "octo-dev/deploy-stack",
+    "fork": false,
+    "archived": false,
+    "private": false,
+    "size": 300,
+    "language": "Go",
+    "topics": ["gitops", "Kubernetes"],
+    "description": "GitOps platform manifests for progressive delivery",
+    "default_branch": "main",
+    "pushed_at": "2026-11-08T10:00:00Z"
+  },
+  {
+    "name": "forked-thing",
+    "full_name": "octo-dev/forked-thing",
+    "fork": true,
+    "archived": false,
+    "private": false,
+    "size": 10,
+    "language": "C",
+    "topics": ["linux"],
+    "description": "A fork",
+    "default_branch": "main",
+    "pushed_at": "2026-11-09T10:00:00Z"
+  },
+  {
+    "name": "old-archive",
+    "full_name": "octo-dev/old-archive",
+    "fork": false,
+    "archived": true,
+    "private": false,
+    "size": 10,
+    "language": "Ruby",
+    "topics": [],
+    "description": "Old",
+    "default_branch": "main",
+    "pushed_at": "2026-11-09T09:00:00Z"
+  },
+  {
+    "name": "ml-notes",
+    "full_name": "octo-dev/ml-notes",
+    "fork": false,
+    "archived": false,
+    "private": false,
+    "size": 40,
+    "language": "Python",
+    "topics": [],
+    "description": "Notes on serving models with vLLM",
+    "default_branch": "trunk",
+    "pushed_at": "2026-10-01T10:00:00Z"
+  }
+]

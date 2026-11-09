@@ -37,7 +37,7 @@ spec:
                   key: elasticsearch-api-key
             # Trace the load in Dash0 too.
             - name: NODE_OPTIONS
-              value: "--require @opentelemetry/auto-instrumentations-node/register"
+              value: "--require ./telemetry.js"
             - name: OTEL_SERVICE_NAME
               value: "conference-loader"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

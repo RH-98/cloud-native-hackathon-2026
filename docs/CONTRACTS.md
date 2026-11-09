@@ -27,8 +27,11 @@ Throws `ProfileError` (`err.code`: `not_found`, `rate_limited`, `upstream`, `inv
   "avatarUrl": "https://…",           // null for interests
   "repoCount": 8,                     // repos scanned
   "languages": [{ "name": "Go", "weight": 0.6 }],            // weights 0..1, sorted desc
-  "tools": [{ "name": "argo-cd", "weight": 0.9, "evidence": ["octocat/deploy"] }],
-                                      // CNCF / infra tools from dependency files, manifests, topics
+  "tools": [{ "name": "argo-cd", "label": "Argo CD", "weight": 0.9, "evidence": ["octocat/deploy"] }],
+                                      // CNCF / infra tools from dependency files, manifests, topics, READMEs.
+                                      // name: stable slug from the catalog in app/profile/tools.js; label: display name.
+                                      // weight 0..1 (evidence strength: dependency/manifest > topic > README mention),
+                                      // sorted desc, at most 15; evidence: up to 5 public repo full names
   "topics": ["kubernetes", "gitops"], // GitHub repo topics, lowercased
   "keywords": ["progressive delivery", "helm"], // from READMEs and descriptions
   "generatedAt": "2026-11-09T21:00:00Z"
@@ -36,6 +39,8 @@ Throws `ProfileError` (`err.code`: `not_found`, `rate_limited`, `upstream`, `inv
 ```
 
 Only derived signals are kept. Never store or return code, file contents or the token.
+
+From `interests` (max 500 characters), phrases matching a catalog alias become tools (`"argo"` → `argo-cd`, `"otel"` → `opentelemetry`, `"k8s"` → `kubernetes`) with weight 1 and empty `evidence`; other phrases become `keywords`, and language names (`rust`, `golang`…) also fill `languages`. GitHub profiles are cached in memory for 15 minutes per username. If GitHub rate-limits part-way through, the profile is built from what was already fetched (repo languages, topics, descriptions) rather than failing.
 
 ## Search and plan (`app/planner/index.js`)
 
@@ -97,6 +102,7 @@ Plan:
 | `GET /healthz`, `GET /readyz` | | `ok` (keep these) |
 | `GET /api/conferences` | | `{ "conferences": [{ id, name, location, timezone, startDate, endDate, sessionCount }] }` |
 | `POST /api/plan` | `{ "conferenceId", "github"?: "user", "interests"?: "text", "options"?: {…} }` (one of `github` / `interests`) | `{ "profile": Profile, "plan": Plan }` |
+| `POST /api/connections` | `{ "conferenceId", "profile": Profile, "pickedSessionIds"?: [id], "limit"?: 1-20, "firstTimer"?: bool }` | `{ "connections": [{ "attendee": { displayName, handle, role, bio }, "score", "shared": [label], "why", "commonSessions": [{ id, title, start }] }], "searchBackend", "demoData": true }`. Opted-in (fictional demo) attendees only; 404 when the conference has none |
 | `GET /` and static files | | the UI from `app/public/` |
 
 Errors are JSON `{ "error": { "code": "not_found", "message": "No GitHub user named …" } }` with status 400 (`invalid_input`), 404 (`not_found`), 429 (`rate_limited`) or 502 (`upstream`).

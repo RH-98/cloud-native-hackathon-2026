@@ -54,17 +54,6 @@ test('both attendee queries filter on opt-in and conference', () => {
   assert.match(semantic.bool.must[0].semantic.query, /Argo CD/);
 });
 
-test('fuseRankings is reciprocal rank fusion', () => {
-  const fused = es.fuseRankings(
-    [
-      [{ _id: 'a' }, { _id: 'b' }],
-      [{ _id: 'b' }, { _id: 'c' }],
-    ],
-    { size: 3 },
-  );
-  assert.deepEqual(fused.map((h) => h._id), ['b', 'a', 'c']);
-});
-
 const hit = (doc) => ({ _id: doc.id, _source: doc });
 
 test('searchAttendees uses the rrf retriever and drops opted-out hits', async () => {
