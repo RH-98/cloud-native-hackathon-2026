@@ -14,13 +14,16 @@ Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before 
 |---|---|
 | `otel-exporter-otlp-headers` | Dash0 ingest auth, in the form `Authorization=Bearer <dash0-auth-token>` |
 | `elasticsearch-api-key` | Elasticsearch API key (encoded form) with create, write and read access to the `conference-*` indices |
+| `github-token` | Fine-grained GitHub token, public repositories read-only, no other permissions. Raises the GitHub API limit from 60 to 5,000 requests/hour |
 
 ```bash
 read -rs DASH0_TOKEN
 read -rs ES_API_KEY
+read -rs GITHUB_TOKEN
 kubectl -n team-ryan-hilton-real create secret generic app-credentials \
   --from-literal=otel-exporter-otlp-headers="Authorization=Bearer $DASH0_TOKEN" \
-  --from-literal=elasticsearch-api-key="$ES_API_KEY"
+  --from-literal=elasticsearch-api-key="$ES_API_KEY" \
+  --from-literal=github-token="$GITHUB_TOKEN"
 ```
 
 ### Environment variables (set in `deploy/deployment.yaml`)
@@ -29,6 +32,8 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 |---|---|---|
 | `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
 | `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
+| `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
+| `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour) |
 | `NODE_OPTIONS` | `--require @opentelemetry/auto-instrumentations-node/register` | Loads OpenTelemetry auto-instrumentation |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
