@@ -115,8 +115,16 @@ async function profileFor(input, buildProfile, span) {
   } catch (err) {
     const warning = err && Object.hasOwn(GITHUB_FALLBACK, err.code) ? GITHUB_FALLBACK[err.code] : null;
     if (!warning) throw err;
+    let profile;
+    try {
+      profile = await buildProfile({ interests: input.interests });
+    } catch (fallbackErr) {
+      // Interests with nothing usable in them: GitHub's error says more.
+      if (fallbackErr && fallbackErr.code === 'invalid_input') throw err;
+      throw fallbackErr;
+    }
     span?.setAttribute('plan.fallback', warning);
-    return { profile: await buildProfile({ interests: input.interests }), warnings: [warning] };
+    return { profile, warnings: [warning] };
   }
 }
 

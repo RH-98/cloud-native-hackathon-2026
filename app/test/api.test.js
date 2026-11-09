@@ -234,6 +234,16 @@ test('with both inputs, a GitHub failure falls back to the interests with a warn
     assert.deepEqual(seen, [{ github: 'octocat', interests: 'argo cd, rust' }, { interests: 'argo cd, rust' }]);
     await app.close();
   }
+  // Interests with nothing usable: the GitHub error, not a confusing 400.
+  const punct = await start({
+    buildProfile: async (input) => {
+      if (input.github) throw new ProfileError('rate_limited', 'GitHub rate limit reached');
+      return buildProfile(input);
+    },
+  });
+  const punctRes = await postPlan(punct.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: ',' });
+  assert.equal(punctRes.status, 429);
+  await punct.close();
   // Other errors are not swallowed, and GitHub alone still fails as before.
   const app = await start({ buildProfile: async () => { throw new ProfileError('invalid_input', 'nope'); } });
   t.after(app.close);
