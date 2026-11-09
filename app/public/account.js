@@ -53,6 +53,14 @@ export function isOwnGithubProfile(profile, user) {
     && profile.username.toLowerCase() === String(user.login).toLowerCase());
 }
 
+// The GitHub username field when someone signs in: fill in their login when
+// the field is empty, keep whatever they typed (they may plan for someone else).
+export function prefillGithub(current, login) {
+  const typed = typeof current === 'string' ? current.trim() : '';
+  if (typed) return typed;
+  return typeof login === 'string' ? login : '';
+}
+
 // ---------- API ----------
 
 async function api(path, { method = 'GET', body } = {}) {
@@ -130,6 +138,47 @@ function renderHeader() {
     );
   }
   nav.hidden = false;
+}
+
+// The top of the form: a prominent sign-in when signed out; when signed in,
+// the username field is pre-filled and says whose account this is.
+function renderFormStart() {
+  const start = $('#account-start');
+  const signed = $('#github-signed-in');
+  const input = $('#github');
+  if (!start || !signed || !input) return;
+  const describedBy = () => (input.getAttribute('aria-describedby') || '').split(' ').filter((x) => x && x !== 'github-signed-in');
+  if (!account.enabled) {
+    start.hidden = true;
+    signed.hidden = true;
+    return;
+  }
+  if (!account.user) {
+    start.replaceChildren(
+      signInLink('Sign in with GitHub', 'btn account-start__btn'),
+      h('p', { class: 'hint account-start__hint' }, 'Optional. Fills in your username and saves your plan to come back to. We only ask GitHub for your public profile.'),
+    );
+    start.hidden = false;
+    signed.hidden = true;
+    input.setAttribute('aria-describedby', describedBy().join(' '));
+    return;
+  }
+  start.hidden = true;
+  const login = account.user.login;
+  input.value = prefillGithub(input.value, login);
+  const children = ['Signed in as ', h('strong', {}, `@${login}`), '. Change the username to plan for someone else.'];
+  if (input.value.replace(/^@/, '').toLowerCase() !== String(login).toLowerCase()) {
+    const use = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, `Use @${login}`);
+    use.addEventListener('click', () => {
+      input.value = login;
+      renderFormStart();
+      input.focus();
+    });
+    children.push(' ', use);
+  }
+  signed.replaceChildren(...children);
+  signed.hidden = false;
+  input.setAttribute('aria-describedby', [...describedBy(), 'github-signed-in'].join(' '));
 }
 
 function setSaveStatus(text) {
@@ -256,6 +305,7 @@ export async function initAccount(opts) {
     account.enabled = false;
   }
   renderHeader();
+  renderFormStart();
   if (!account.user) {
     takePending(); // signed out: drop anything left over
     return;
