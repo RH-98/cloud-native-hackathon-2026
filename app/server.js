@@ -2,10 +2,12 @@
 // listening on $PORT and keep /healthz and /readyz, and the manifests in
 // deploy/ keep working.
 const http = require('node:http');
+const { logs, SeverityNumber } = require('@opentelemetry/api');
 
 const port = Number(process.env.PORT || 8080);
 const team = process.env.TEAM_NAME || 'your-team';
 const version = process.env.APP_VERSION || 'dev';
+const otelLogger = logs.getLogger('conference-planner');
 
 const sessions = [
   { id: 1, time: '10:00', room: 'Main', title: 'Kickoff and sponsor talks' },
@@ -39,7 +41,15 @@ const server = http.createServer((req, res) => {
   res.end('not found\n');
 });
 
-server.listen(port, () => console.log(`listening on :${port}, version ${version}`));
+server.listen(port, () => {
+  const message = `listening on :${port}, version ${version}`;
+  console.log(message);
+  otelLogger.emit({
+    severityNumber: SeverityNumber.INFO,
+    severityText: 'INFO',
+    body: message,
+  });
+});
 
 // Exit cleanly when Kubernetes stops the pod, so rollouts don't drop requests.
-process.on('SIGTERM', () => server.close(() => process.exit(0)));
+process.on('SIGTERM', () => server.close());

@@ -2,6 +2,41 @@
 
 A personal day plan for KubeCon, built from your GitHub repos, with backups for every time slot. This README will grow into the project's setup guide; the Radar starter notes follow below.
 
+## Configuration
+
+The app runs on Kubernetes (`deploy/`), deployed by Argo CD on every push to `main`.
+
+### Secret
+
+Create the Secret `app-credentials` in namespace `team-ryan-hilton-real` before deploying. Never commit its values.
+
+| Key | Used for |
+|---|---|
+| `otel-exporter-otlp-headers` | Dash0 ingest auth, in the form `Authorization=Bearer <dash0-auth-token>` |
+
+```bash
+read -rs DASH0_TOKEN
+kubectl -n team-ryan-hilton-real create secret generic app-credentials \
+  --from-literal=otel-exporter-otlp-headers="Authorization=Bearer $DASH0_TOKEN"
+```
+
+### Environment variables (set in `deploy/deployment.yaml`)
+
+| Variable | Value / source | Purpose |
+|---|---|---|
+| `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
+| `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
+| `NODE_OPTIONS` | `--require @opentelemetry/auto-instrumentations-node/register` | Loads OpenTelemetry auto-instrumentation |
+| `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP over HTTP |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Secret `app-credentials` | Dash0 auth header |
+| `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces and metrics; logs explicitly emitted through the OpenTelemetry Logs API are exported (plain `console.log` is not instrumented) |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans |
+| `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
+
+To run locally without Dash0: `cd app && npm install && npm start`.
+
 ## AI usage
 
 This project is built with AI coding assistance: Claude Code (Anthropic) helps write code, configuration and docs, and Gitar reviews pull requests and fixes CI failures. Every change is reviewed and understood by the team before it merges.
