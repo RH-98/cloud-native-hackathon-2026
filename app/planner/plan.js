@@ -265,8 +265,10 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
   return { date, slots, booths };
 }
 
+// LF events call the track "Keynote Sessions"; the Sessionize importer uses "Keynote".
 function isKeynote(session) {
-  return session.track === KEYNOTE_TRACK || (Array.isArray(session.tags) && session.tags.includes(KEYNOTE_TRACK));
+  const names = [session.track, ...(Array.isArray(session.tags) ? session.tags : [])];
+  return names.some((n) => n === KEYNOTE_TRACK || n === 'Keynote');
 }
 
 // Keynotes that scored below MIN_SCORE (or weren't returned by search at all)
