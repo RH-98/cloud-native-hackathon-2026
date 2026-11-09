@@ -54,6 +54,15 @@ export function isOwnGithubProfile(profile, user) {
     && profile.username.toLowerCase() === String(user.login).toLowerCase());
 }
 
+// Can this signed-in user opt this profile in to matching? Your own GitHub
+// profile, or one from typed interests / a pasted LinkedIn profile (no
+// username: taken as yours). Mirrors isOwnProfile in app/api/me.js.
+export function canOptInProfile(profile, user) {
+  if (!profile || !user) return false;
+  if (profile.source === 'interests') return profile.username == null;
+  return isOwnGithubProfile(profile, user);
+}
+
 // The GitHub username field when someone signs in: fill in their login when
 // the field is empty, keep whatever they typed (they may plan for someone else).
 export function prefillGithub(current, login) {
@@ -296,13 +305,13 @@ function renderSaveBox() {
   let status = $('#save-status');
   if (!status) status = h('p', { id: 'save-status', class: 'hint account-save__status', role: 'status', 'aria-live': 'polite' });
   const children = [status];
-  if (isOwnGithubProfile(state.profile, account.user)) {
+  if (canOptInProfile(state.profile, account.user)) {
     const box2 = h('input', { type: 'checkbox', id: 'social-opt-in', 'aria-describedby': 'social-opt-in-hint', checked: account.socialOptedIn });
     box2.addEventListener('change', () => setSocialOptIn(box2));
     children.push(
       h('div', { class: 'field field--check' },
         h('label', { class: 'check' }, box2, ' Let other signed-in attendees find me to meet'),
-        h('p', { class: 'hint', id: 'social-opt-in-hint' }, 'Shares your name, avatar and the tools, topics and languages in your profile. Never code or repo names. Untick to remove it.')),
+        h('p', { class: 'hint', id: 'social-opt-in-hint' }, 'Shares your name, avatar and the tools, topics and languages in your profile (including skills from a pasted LinkedIn profile, never its text). Never code or repo names. Untick to remove it.')),
     );
   }
   box.replaceChildren(...children);
