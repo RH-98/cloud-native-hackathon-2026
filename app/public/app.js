@@ -1,6 +1,7 @@
 // Wires the page together: the form, loading and error states, plan actions
 // (swap, pin, skip, day tabs) and the exports. Rendering lives in render.js,
 // API calls in api.js, state and swaps in state.js, exports in ics.js.
+import { initAccount, notifyPlanChanged } from './account.js';
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
 import { dateRange, formatDay } from './format.js';
@@ -231,6 +232,7 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
     announce([done || `Route ready: ${n} session${n === 1 ? '' : 's'} over ${state.plan.days.length} day${state.plan.days.length === 1 ? '' : 's'}.`, ...notes].join(' '));
     if (fresh) $('#profile-heading')?.scrollIntoView({ block: 'start' });
     loadPeople();
+    notifyPlanChanged();
     return true;
   } catch (err) {
     if (mine !== planRequestSeq) return false;
@@ -286,6 +288,7 @@ function onSwap(date, index, backupIndex) {
   for (const b of slot.backups) state.pinned.delete(b?.session?.id);
   showPlan({ focusKey: `pick-${date}-${index}` });
   announce(`Swapped in ${rec.session.title}.`);
+  notifyPlanChanged();
 }
 
 function onPin(date, index) {
@@ -453,6 +456,32 @@ async function init() {
   }
   const conferenceId = selectedConference();
   renderDays(conferenceId, saved?.conferenceId === conferenceId ? saved?.days : null);
+  initAccount({ conferenceId: selectedConference, restore: restoreSaved, notify: announce });
+}
+
+// Shows a plan restored from the user's account (account.js has already put
+// it into `state`). Without a stored plan, re-requests it.
+function restoreSaved() {
+  const req = state.request;
+  el.github.value = typeof req.github === 'string' ? req.github : '';
+  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, 500) : '';
+  updateCount();
+  const card = [...el.conferenceList.querySelectorAll('input[name="conference"]')].find((i) => i.value === req.conferenceId);
+  if (card && !card.checked) {
+    card.checked = true;
+    renderDays(req.conferenceId, req.options?.days || null);
+  }
+  if (!state.plan) {
+    loadPlan(req, { message: 'Loading your saved plan…', done: 'Your saved plan is back.', fresh: true });
+    return;
+  }
+  if (state.profile) {
+    renderProfile(el.profile, state.profile);
+    el.profile.hidden = false;
+  }
+  showPlan();
+  announce('Your saved plan is back.');
+  loadPeople();
 }
 
 init();

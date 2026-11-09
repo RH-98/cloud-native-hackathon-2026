@@ -81,7 +81,7 @@ test('ranks the closest attendee first, with shared labels and a why line', () =
 
 test('returns only public attendee fields', () => {
   const [result] = matchAttendees(profile, [platform]);
-  assert.deepEqual(Object.keys(result.attendee).sort(), ['bio', 'displayName', 'handle', 'role']);
+  assert.deepEqual(Object.keys(result.attendee).sort(), ['bio', 'demo', 'displayName', 'handle', 'role']);
   assert.equal(result.interests, undefined);
 });
 

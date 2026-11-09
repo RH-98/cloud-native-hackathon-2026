@@ -404,7 +404,9 @@ export function renderConnections(section, data, timeZone) {
   section.append(
     h('h2', { id: 'people-heading', class: 'section-title' }, h('span', { class: 'section-title__step' }, '04'), ' People to meet'),
     h('p', { class: 'note' },
-      data.demoData === false ? null : [h('strong', {}, 'Fictional demo attendees.'), ' '],
+      data.demoData === false ? null : [h('strong', {}, people.some((c) => c.attendee.demo === false)
+        ? 'Fictional demo attendees, plus real attendees who signed in with GitHub and opted in.'
+        : 'Fictional demo attendees.'), ' '],
       'Matching is opt-in: only attendees who chose to be found are shown, and only shared public topics.'),
     h('ul', { class: 'people__list' }, people.map((c, i) => {
       const a = c.attendee;
