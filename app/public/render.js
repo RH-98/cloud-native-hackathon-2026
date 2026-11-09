@@ -166,14 +166,17 @@ function backupList(date, index, slot, timeZone) {
         'Use this one', srOnly(`: ${b.session.title}`))))));
 }
 
-function slotItem(date, index, slot, timeZone) {
+function slotItem(date, index, slot, timeZone, booths = []) {
   const rec = slot.pick;
   if (!rec || !rec.session) {
-    return h('li', { class: 'stop stop--open' },
+    // Free time: booths that fit here, and any backups the planner offered.
+    return h('li', { class: 'stop stop--gap' },
       h('div', { class: 'stop__time' }, timeRange(slot.start, slot.end, timeZone, 'when', true)),
-      h('div', { class: 'stop__card' },
-        h('h4', { class: 'stop__title' }, 'Open trail'),
-        h('p', { class: 'hint' }, 'Nothing here matched you. Rest, refill your water, or wander the hallway track.'),
+      h('div', { class: 'gap' },
+        h('h4', { class: 'gap__title' }, freeFor(slot.start, slot.end), booths.length ? ' \u00b7 booth stops on the way' : ''),
+        booths.length
+          ? h('ul', { class: 'booths' }, booths.map(boothItem))
+          : h('p', { class: 'hint' }, 'Nothing here matched you. Rest, refill your water, or wander the hallway track.'),
         backupList(date, index, slot, timeZone)));
   }
   const s = rec.session;
@@ -202,20 +205,26 @@ function boothItem(booth) {
     reasonChips(booth.reasons, `Why visit ${sp.name}`));
 }
 
+function freeFor(start, end) {
+  const mins = minutesBetween(start, end);
+  if (mins < 60) return `Free for ${mins} min`;
+  return `Free for ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
+}
+
 function gapItem(gap, timeZone) {
-  const mins = minutesBetween(gap.start, gap.end);
   return h('li', { class: 'stop stop--gap' },
     h('div', { class: 'stop__time' }, timeRange(gap.start, gap.end, timeZone, 'when', true)),
     h('div', { class: 'gap' },
-      h('p', { class: 'gap__title' }, h('strong', {}, `Free for ${mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60} min` : ''}`.trim() : `${mins} min`}`),
-        gap.booths.length ? ' · booth stops on the way' : ''),
+      h('h4', { class: 'gap__title' }, freeFor(gap.start, gap.end), gap.booths.length ? ' \u00b7 booth stops on the way' : ''),
       gap.booths.length ? h('ul', { class: 'booths' }, gap.booths.map(boothItem)) : null));
 }
 
-// Interleaves slots with free gaps (and the booths that fit in them).
+// Interleaves slots with free gaps, and puts each booth in the free time
+// (a slot with no pick, or a gap between slots) its own gap overlaps.
 export function timelineEntries(day) {
-  const slots = (day.slots || []).map((slot, index) => ({ slot, index }))
+  const slots = (day.slots || []).map((slot, index) => ({ slot, index, booths: [] }))
     .sort((a, b) => new Date(a.slot.start) - new Date(b.slot.start));
+  const overlaps = (x, g) => new Date(x.start) < new Date(g.end) && new Date(x.end) > new Date(g.start);
   const gaps = [];
   let lastEnd = null;
   for (const { slot } of slots) {
@@ -229,12 +238,13 @@ export function timelineEntries(day) {
     if (!booth?.sponsor) continue;
     const g = booth.gap;
     if (!g?.start || !g?.end) { loose.push(booth); continue; }
-    const hit = gaps.find((x) => new Date(x.start) < new Date(g.end) && new Date(x.end) > new Date(g.start));
+    const open = slots.find((x) => !x.slot.pick && overlaps(x.slot, g));
+    const hit = open || gaps.find((x) => overlaps(x, g));
     if (hit) hit.booths.push(booth);
     else gaps.push({ start: g.start, end: g.end, booths: [booth] });
   }
   const entries = [
-    ...slots.map(({ slot, index }) => ({ kind: 'slot', at: slot.start, slot, index })),
+    ...slots.map(({ slot, index, booths }) => ({ kind: 'slot', at: slot.start, slot, index, booths })),
     ...gaps.map((gap) => ({ kind: 'gap', at: gap.start, gap })),
   ].sort((a, b) => new Date(a.at) - new Date(b.at) || (a.kind === 'gap' ? -1 : 1));
   return { entries, loose };
@@ -250,7 +260,7 @@ function dayPanel(day, timeZone, active) {
     panel.append(h('p', { class: 'empty-day' }, 'No sessions matched this day with your options. Try more levels or include sponsored sessions.'));
   } else {
     panel.append(h('ol', { class: 'timeline' }, entries.map((e) => (e.kind === 'slot'
-      ? slotItem(day.date, e.index, e.slot, timeZone)
+      ? slotItem(day.date, e.index, e.slot, timeZone, e.booths)
       : gapItem(e.gap, timeZone)))));
   }
   if (loose.length) {
@@ -269,7 +279,9 @@ export function renderPlan(container, plan, activeDay) {
     container.append(h('p', { class: 'empty-day' }, 'No sessions matched. Try checking more days or levels, or broaden your interests.'));
     return null;
   }
-  const active = days.some((d) => d.date === activeDay) ? activeDay : days[0].date;
+  // Keep the open tab; otherwise open the first day that has a pick.
+  const firstWithPicks = days.find((d) => (d.slots || []).some((s) => s.pick)) || days[0];
+  const active = days.some((d) => d.date === activeDay) ? activeDay : firstWithPicks.date;
   const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Conference days' }, days.map((d) => {
     const picks = (d.slots || []).filter((s) => s.pick).length;
     const selected = d.date === active;

@@ -120,7 +120,8 @@ function readInputs() {
     github: el.github.value.trim().replace(/^@/, ''),
     interests: el.interests.value.trim(),
     conferenceId: el.conference.value || DEFAULT_CONFERENCE,
-    days: days.length === allDays ? null : days,
+    // Always send the checked days (when known), so pre-event days stay out.
+    days: allDays ? days : null,
     levels,
     firstTimer: el.firstTimer.checked,
     includeSponsored: el.includeSponsored.checked,
