@@ -4,6 +4,7 @@
 // app-credentials Secret).
 const { Client } = require('@elastic/elasticsearch');
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
+const terms = require('../planner/terms');
 
 const tracer = trace.getTracer('conference-search');
 
@@ -180,6 +181,194 @@ async function loadSnapshot(client, snapshot, { batchSize = 50 } = {}) {
   });
 }
 
+// --- Search -------------------------------------------------------------------
+// Request bodies are plain query objects built from the profile: user input
+// only ever lands in query values, never in a query string.
+
+const SEARCH_TRANSPORT = { requestTimeout: 10_000, maxRetries: 1 };
+const RRF_RANK_CONSTANT = 60;
+const LEXICAL_FIELDS = ['title^3', 'description', 'tags^2', 'track'];
+// How much the profile-term match and the fused rank each count in a hit's score.
+const BLEND = { lexical: 0.5, rank: 0.5 };
+
+function searchAvailable(env = process.env) {
+  return Boolean(env.ELASTICSEARCH_URL && env.ELASTICSEARCH_API_KEY);
+}
+
+// Filters shared by both retrievers: this conference, real sessions, the
+// requested days (in the conference's offset) and levels (plus Any Level/none).
+function sessionFilters({ conferenceId, days, levels, utcOffset = '-07:00' }) {
+  const filter = [{ term: { conferenceId } }, { term: { kind: 'session' } }];
+  if (days && days.length) {
+    filter.push({
+      bool: {
+        should: days.map((day) => ({
+          range: { start: { gte: `${day}T00:00:00${utcOffset}`, lte: `${day}T23:59:59${utcOffset}` } },
+        })),
+        minimum_should_match: 1,
+      },
+    });
+  }
+  if (levels && levels.length) {
+    filter.push({
+      bool: {
+        should: [
+          { terms: { level: [...new Set([...levels, 'Any Level'])] } },
+          { bool: { must_not: { exists: { field: 'level' } } } },
+        ],
+        minimum_should_match: 1,
+      },
+    });
+  }
+  return filter;
+}
+
+function buildSessionSearch({ conferenceId, profile, days, levels, size = 250, utcOffset }) {
+  const profileTerms = terms.profileTerms(profile);
+  const filter = sessionFilters({ conferenceId, days, levels, utcOffset });
+  const should = profileTerms.flatMap((t) =>
+    t.variants.map((variant) => ({
+      multi_match: {
+        query: variant,
+        fields: LEXICAL_FIELDS,
+        operator: 'and',
+        lenient: true,
+        boost: Math.max(0.01, Math.round(t.weight * 1000) / 1000),
+      },
+    })),
+  );
+  const lexical = should.length
+    ? { bool: { should, minimum_should_match: 1, filter } }
+    : { bool: { filter } };
+  const semanticText = terms.semanticQueryText(profile, profileTerms);
+  const semantic = { bool: { must: [{ semantic: { field: 'semantic', query: semanticText } }], filter } };
+  const common = { index: INDEX.sessions, size, _source: { excludes: ['semantic'] } };
+  return {
+    terms: profileTerms,
+    semanticText,
+    common,
+    lexical,
+    semantic,
+    request: {
+      ...common,
+      retriever: {
+        rrf: {
+          retrievers: [{ standard: { query: lexical } }, { standard: { query: semantic } }],
+          rank_window_size: size,
+          rank_constant: RRF_RANK_CONSTANT,
+        },
+      },
+    },
+  };
+}
+
+// Reciprocal rank fusion in JS, for clusters that refuse the rrf retriever.
+// lists: arrays of hits, each in rank order. Returns hits with an RRF _score.
+function fuseRrf(lists, { rankConstant = RRF_RANK_CONSTANT, size = Infinity } = {}) {
+  const byId = new Map();
+  for (const hits of lists) {
+    hits.forEach((hit, i) => {
+      const entry = byId.get(hit._id) || { hit, score: 0 };
+      entry.score += 1 / (rankConstant + i + 1);
+      byId.set(hit._id, entry);
+    });
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.score - a.score || String(a.hit._id).localeCompare(String(b.hit._id)))
+    .slice(0, size)
+    .map((e) => ({ ...e.hit, _score: e.score }));
+}
+
+// Hits -> [{ session, score, reasons }]. The score (0..1) blends how well the
+// profile terms match (computed here, so it means the same thing for every
+// backend) with the fused rank, normalized so that first place in either
+// retriever counts fully (rank 10 ~0.87, rank 100 ~0.38).
+function toRecommendations(hits, profileTerms, { rankConstant = RRF_RANK_CONSTANT } = {}) {
+  const best = 1 / (rankConstant + 1);
+  return hits
+    .map((hit) => {
+      const { semantic, ...session } = hit._source || {};
+      const matches = terms.sessionMatches(session, profileTerms);
+      const rank = Math.min(1, (hit._score || 0) / best);
+      const score = BLEND.lexical * terms.lexicalScore(matches) + BLEND.rank * rank;
+      return {
+        session,
+        score: Math.round(score * 1000) / 1000,
+        reasons: terms.sessionReasons(session, matches, { semantic: true }),
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.session.id.localeCompare(b.session.id));
+}
+
+function rrfUnsupported(err) {
+  const status = err && err.meta && err.meta.statusCode;
+  return status === 400 || status === 403 || /rrf|retriever|licen[cs]e/i.test((err && err.message) || '');
+}
+
+async function searchSessions(client, { conferenceId, profile, days, levels, size = 250, utcOffset } = {}) {
+  const attributes = {
+    'conference.id': conferenceId,
+    'es.index': INDEX.sessions,
+    'es.size': size,
+    'search.days': (days || []).join(','),
+  };
+  return withSpan('es.search_sessions', attributes, async (span) => {
+    const built = buildSessionSearch({ conferenceId, profile, days, levels, size, utcOffset });
+    span.setAttribute('search.terms', built.terms.length);
+    let hits;
+    try {
+      const res = await client.search(built.request, SEARCH_TRANSPORT);
+      hits = res.hits.hits;
+      span.setAttribute('es.fusion', 'rrf');
+    } catch (err) {
+      if (!rrfUnsupported(err)) throw err;
+      span.addEvent('rrf_unsupported', { 'http.status_code': (err.meta && err.meta.statusCode) || 0 });
+      const [lexical, semantic] = await Promise.all([
+        client.search({ ...built.common, query: built.lexical }, SEARCH_TRANSPORT),
+        client.search({ ...built.common, query: built.semantic }, SEARCH_TRANSPORT),
+      ]);
+      hits = fuseRrf([lexical.hits.hits, semantic.hits.hits], { size });
+      span.setAttribute('es.fusion', 'js');
+    }
+    span.setAttribute('es.hits', hits.length);
+    return toRecommendations(hits, built.terms);
+  });
+}
+
+function buildSponsorSearch({ conferenceId, profile }) {
+  const profileTerms = terms.profileTerms(profile);
+  const vendorNames = terms.vendorNamesFor(profileTerms);
+  const should = profileTerms
+    .filter((t) => t.kind === 'tool' && t.key.length >= 4)
+    .map((t) => ({ match: { name: { query: t.key, operator: 'and' } } }));
+  if (vendorNames.length) should.push({ terms: { 'name.keyword': vendorNames } });
+  return {
+    terms: profileTerms,
+    request: should.length
+      ? {
+          index: INDEX.sponsors,
+          size: 50,
+          query: { bool: { filter: [{ term: { conferenceId } }], should, minimum_should_match: 1 } },
+        }
+      : null,
+  };
+}
+
+// Sponsors whose name or known products match the profile's tools.
+async function searchSponsors(client, { conferenceId, profile } = {}) {
+  return withSpan('es.search_sponsors', { 'conference.id': conferenceId, 'es.index': INDEX.sponsors }, async (span) => {
+    const built = buildSponsorSearch({ conferenceId, profile });
+    if (!built.request) {
+      span.setAttribute('es.hits', 0);
+      return [];
+    }
+    const res = await client.search(built.request, SEARCH_TRANSPORT);
+    const sponsors = res.hits.hits.map((h) => h._source);
+    span.setAttribute('es.hits', sponsors.length);
+    return terms.rankSponsors(sponsors, built.terms);
+  });
+}
+
 module.exports = {
   INDEX,
   MAPPINGS,
@@ -189,4 +378,13 @@ module.exports = {
   toBulkOperations,
   getLoadedConference,
   loadSnapshot,
+  withSpan,
+  searchAvailable,
+  sessionFilters,
+  buildSessionSearch,
+  fuseRrf,
+  toRecommendations,
+  searchSessions,
+  buildSponsorSearch,
+  searchSponsors,
 };
