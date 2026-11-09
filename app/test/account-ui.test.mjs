@@ -1,7 +1,7 @@
 // The browser account module's pure helpers: what gets saved and restored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySnapshot, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
+import { applySnapshot, canOptInProfile, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
 import { derivedInterests, isPastedText, persistableRequest, saveInputs } from '../public/state.js';
 
 const sample = () => ({
@@ -68,6 +68,16 @@ test('short multi-line typed interests are preserved in local and account saves'
   assert.equal(persistableRequest({ interests }, null).interests, interests);
   saveInputs({ interests }, { setItem: (_key, value) => { saved = JSON.parse(value); } });
   assert.equal(saved.interests, interests);
+});
+
+test('opt-in is offered for your own GitHub profile or an interests / LinkedIn-pasted one', () => {
+  const user = { login: 'OctoCat' };
+  assert.equal(canOptInProfile({ source: 'github+interests', username: 'octocat', pastedFrom: 'linkedin' }, user), true);
+  assert.equal(canOptInProfile({ source: 'interests', username: null, pastedFrom: 'linkedin' }, user), true);
+  assert.equal(canOptInProfile({ source: 'interests', username: null }, user), true);
+  assert.equal(canOptInProfile({ source: 'github+interests', username: 'torvalds', pastedFrom: 'linkedin' }, user), false);
+  assert.equal(canOptInProfile({ source: 'interests', username: 'torvalds' }, user), false);
+  assert.equal(canOptInProfile({ source: 'interests', username: null }, null), false);
 });
 
 test('signing in fills an empty username field but keeps what was typed', () => {
