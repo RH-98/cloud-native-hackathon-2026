@@ -2,23 +2,28 @@
 
 **Live:** https://ryan-hilton-real.cnh.radarhq.io · Built at the Cloud Native Hackathon, Salt Lake City, November 9, 2026 (unofficial, not affiliated with the CNCF or the Linux Foundation).
 
-KubeCon has hundreds of sessions, overlapping tracks and 244 sponsor booths. Most people show up without a plan, then spend the day searching the schedule on their phone. Switchback reads what you actually work on (your public GitHub repos, or a few interests you type) and builds you a personal day plan: the best session for each time slot, two backups for when a room is full, sponsor booths that match your stack in the gaps, and people worth meeting.
+KubeCon has hundreds of sessions, overlapping tracks and 244 sponsor booths. Most people show up without a plan, then spend the day searching the schedule on their phone. Switchback reads what you actually work on (your GitHub repos, a LinkedIn profile you paste, or a few interests you type) and builds you a personal day plan: the best session for each time slot, two backups for when a room is full, things to do in the gaps (meals, booths that match your stack, sessions on anyway), people worth meeting, and a heads-up when a session you picked moves.
 
 ## What it does
 
-- **A profile from your repos.** Give a GitHub username and Switchback scans your most recent public repos: dependency files (`package.json`, `go.mod`, `Chart.yaml`…), Kubernetes manifests, topics and READMEs. It detects about 75 cloud native tools (Argo CD, Flux, OpenTelemetry, Cilium, Kyverno…). It keeps only derived signals, never code. No GitHub history? Type your interests instead.
-- **A plan with backups.** Hybrid search in Elasticsearch (exact tool names plus semantic similarity, fused with reciprocal rank fusion) finds matching sessions, and the planner picks the best set of non-overlapping sessions per day, each with up to 2 backups and the reasons it was picked ("Matches Argo CD").
-- **Make it yours.** Swap in a backup, pin a session, skip one, set breaks between sessions, filter by level, turn on first-timer mode, and export to your calendar (`.ics`).
-- **Booths and people.** Free gaps get booth suggestions for sponsors that match your tools. "People to meet" suggests attendees who opted in and share your tools and topics (demo data: fictional attendees).
+- **A profile from what you work on.** Give a GitHub username and Switchback reads your recent repos: dependency files (`package.json`, `go.mod`, `Chart.yaml`…), Kubernetes manifests, CI workflows, container images, topics, byte-weighted languages, recent forks, starred repos and recent contributions. It detects about 75 cloud native tools (Argo CD, Flux, OpenTelemetry, Cilium, Kyverno…) and ranks them by evidence strength: real usage beats topics, which beat README mentions; recent work counts more (12-month half-life). Hover a tool to see why it's there. It keeps only derived signals, never code.
+- **Or paste LinkedIn, or type interests, or combine them.** Paste a LinkedIn profile (headline, About, Experience, Skills, even a whole-page copy): skills map to tools, job titles to topics, and the pasted text is never stored. LinkedIn's APIs only give new apps a name, photo and email, so copy and paste is the honest path (the EU-only Member Data Portability API is the future one-click route). Interests and LinkedIn blend into a GitHub profile.
+- **Private repos, read-only.** Signed in, you can add private repos through the Switchback GitHub App, which asks only for read-only Contents and Metadata on the repos you pick. We deliberately don't use the OAuth `repo` scope, which would grant write access. The token is dropped after one scan, and private repo names never leave the server.
+- **A plan with backups.** Hybrid search in Elasticsearch (exact tool names plus semantic similarity, fused with reciprocal rank fusion) finds matching sessions, and the planner picks the best set of non-overlapping sessions per day, with up to 2 backups each and the reasons ("Matches Flux"). A strong match wins its slot over several weak ones, and sponsored demos rank lower.
+- **Make it yours.** Swap in a backup, pin, skip, set breaks between sessions, filter by level, turn on first-timer mode, and export to your calendar (`.ics`). Open time is a choice, not a dead end: "Things to do" lists the meal or coffee break, sessions on anyway (one click adds one to your plan), and matching booths.
+- **Live schedule changes.** A Kubernetes CronJob re-checks the official schedule every 10 minutes. If a session in your plan moves or is cancelled, the page flags it and offers "Swap to backup" or "Re-plan around it".
+- **Accounts, if you want one.** Sign in with GitHub (`read:user` only) to save a plan per conference and come back to it, opt in to "People to meet" with your own signals, and manage or delete everything on `/account`.
+- **More than one conference.** KubeCon + CloudNativeCon NA 2026 (Salt Lake City) and Convergence 2026 (Miami Beach), each in its own time zone. Any Sessionize-powered event can be added with the generic importer, which is the start of organizers bringing their own conference.
+- **People to meet.** Opt-in matching on shared tools and topics, with a one-line reason and sessions you'll both attend (demo data: 64 fictional attendees, plus real users who opted in, shown only to signed-in users).
 
 ## How it uses each sponsor's tool
 
 | Track | What we built with it |
 |---|---|
-| **Elasticsearch** | The data layer. Sessions are indexed with a `semantic_text` field (Elastic's built-in Jina embeddings) and searched with an `rrf` retriever that fuses a weighted lexical query on tool names with a semantic query built from the profile. Sponsors and attendees are indexed too. Loader Jobs fill the indices. All queries live in [`app/search/elasticsearch.js`](app/search/elasticsearch.js) |
-| **Dash0** | OpenTelemetry end to end: auto-instrumentation plus our own spans (`plan.build`, `profile.build`, `github.*`, `es.search_*`), custom metrics (plans, plan duration, search fallbacks, GitHub rate limit remaining), logs, a dashboard and check rules as code in [`dash0/`](dash0/), and an Agent0 investigation ([`dash0/agent0-findings.md`](dash0/agent0-findings.md)) |
-| **Radar** | Everything on the cluster goes through Radar: the Argo CD GitOps deploys, the loader Jobs (created with Radar's MCP server), logs, rollouts and Checks. Checks went from 4 findings to 0 by fixing them in git. The day is written up in [`STORY.md`](STORY.md) |
-| **Gitar** | Every change is a small pull request that Gitar reviews against our own rules ([`.gitar/`](.gitar/): never log tokens, a span on every outbound call, all Elasticsearch queries in one module, accessible UI, README kept current) and fixes with auto-apply. It caught real bugs: a planner that double-counted matches, a `__proto__` lookup in interest parsing, a race between "clear pins" and an in-flight plan request, and a README out of sync with the code |
+| **Elasticsearch** | The data layer. Sessions are indexed with a `semantic_text` field (Elastic's built-in Jina embeddings) and searched with an `rrf` retriever that fuses a weighted lexical query on tool names with a semantic query built from the profile. Sponsors, attendees (for "People to meet") and live schedule changes (`conference-changes`) are indexed too, for two conferences. Loader Jobs and the `schedule-watch` CronJob fill the indices. All queries live in [`app/search/elasticsearch.js`](app/search/elasticsearch.js) |
+| **Dash0** | OpenTelemetry end to end: auto-instrumentation (HTTP, Postgres, outbound fetch) plus our own spans (`plan.build`, `profile.build`, `github.*`, `es.search_*`, `schedule.*`), custom metrics (plans, plan duration, search fallbacks, GitHub rate limit remaining, schedule changes), logs, three services (`conference-planner`, `conference-loader`, `schedule-watch`), a dashboard and check rules as code in [`dash0/`](dash0/), and an Agent0 investigation ([`dash0/agent0-findings.md`](dash0/agent0-findings.md)). One trace follows a sign-in from the browser through the GitHub OAuth exchange to the Postgres insert, with parameterized SQL and no personal data in spans; private-repo calls are kept out of spans entirely |
+| **Radar** | Everything on the cluster goes through Radar: Argo CD GitOps deploys, loader Jobs created with Radar's MCP server, the `schedule-watch` CronJob ("run now" for demos), the CloudNativePG Postgres cluster, logs, rollouts and Checks. Checks went from 4 findings to 0 by fixing them in git. When Argo CD's repo-server crash-looped mid-afternoon and blocked deploys, a Radar AI investigation explained it (liveness probe kills, not resources or a bad rollout). The day is written up in [`STORY.md`](STORY.md) |
+| **Gitar** | About 25 pull requests, each reviewed by Gitar against our own rules ([`.gitar/`](.gitar/): never log tokens, privacy, a span on every outbound call, all Elasticsearch queries in one module, accessible UI, README kept current) and fixed with auto-apply. It caught real bugs: real opted-in users visible to anonymous callers, a planner that double-counted matches, a `__proto__` lookup in interest parsing, a race between "clear pins" and an in-flight plan request, a GitHub API budget that ran out without a token, a stale re-plan cache in schedule changes, and "Add to plan" silently dropping a neighbouring pick |
 | **Merge Forward** | Accessibility is part of the design: semantic HTML, every control labelled, full keyboard support, visible focus, live-region announcements, WCAG AA contrast in light and dark, `prefers-reduced-motion`, times read clearly by screen readers, a first-timer mode, breaks between sessions, and the typed-interests path for people without a GitHub history |
 
 ## Architecture
@@ -26,9 +31,11 @@ KubeCon has hundreds of sessions, overlapping tracks and 244 sponsor booths. Mos
 ```mermaid
 flowchart LR
   user[Browser: Switchback UI] -->|POST /api/plan| app[Node app, 2 pods]
-  app -->|public repos| gh[GitHub API]
+  app -->|repos, OAuth, GitHub App| gh[GitHub API]
   app -->|hybrid search| es[(Elasticsearch Serverless)]
+  app -->|accounts, saved plans| pg[(Postgres, CloudNativePG)]
   jobs[Loader Jobs] -->|sessions, sponsors, attendees| es
+  cron[CronJob schedule-watch] -->|schedule changes| es
   app -->|OTLP traces, metrics, logs| dash0[Dash0]
   repo[GitHub repo] -->|Actions: image to GHCR| ghcr[GHCR]
   repo -->|deploy/| argocd[Argo CD]
@@ -126,6 +133,7 @@ The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/
 | `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
 | `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
 | `app/public/changes.js`, `changes-logic.js` | Live schedule changes: polls `GET /api/changes` and offers a swap or re-plan for affected picks |
+| `app/public/account.js`, `account.html`, `account-page.js` | Sign in with GitHub, auto-saved plans, and the `/account` page: saved plans per conference, matching opt-in, what's stored, delete account |
 
 The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` (see [Suggested connections](#suggested-connections)) and hides itself if that route isn't there.
 
@@ -135,9 +143,10 @@ The planner can hold any number of conferences, all in one format: [`app/data/co
 
 | Conference | Snapshot | Source | Contents |
 |---|---|---|---|
-| KubeCon + CloudNativeCon NA 2026 | `kubecon-na-2026.json` | Official [schedule](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/program/schedule/) and [sponsor list](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/sponsor-list/) pages | 600 sessions (including breaks and meals) and 244 sponsors with tiers |
+| KubeCon + CloudNativeCon NA 2026 (Salt Lake City, Nov 9–12) | `kubecon-na-2026.json` | Official [schedule](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/program/schedule/) and [sponsor list](https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/sponsor-list/) pages | 600 sessions (including breaks and meals) and 244 sponsors with tiers |
+| Convergence 2026 (Miami Beach, Dec 9–11) | `convergence-2026.json` | The event's public Sessionize API and its sponsor page | 164 sessions plus 12 breaks and meals, and 53 sponsors |
 
-To refresh the KubeCon snapshot: `cd app && npm run import:kubecon`. Session content belongs to the Linux Foundation and the speakers. We use it only to help attendees plan, and link back to each session's official page.
+To refresh a snapshot: `cd app && npm run import:kubecon` or `npm run import:convergence`. **Bring your own conference:** any Sessionize event can be imported with the generic [`app/importers/sessionize.js`](app/importers/sessionize.js); the steps are in [`app/data/conference-format.md`](app/data/conference-format.md). Session content belongs to the organizers and speakers. We use it only to help attendees plan, and link back to each session's official page.
 
 ### Loading into Elasticsearch
 
@@ -221,7 +230,7 @@ The app sends traces, metrics and logs over OTLP to Dash0, as service `conferenc
 
 | Metric | Type | Attributes |
 |---|---|---|
-| `planner.plans` | counter | `conference.id`, `plan.source` (github, interests), `search.backend` (elasticsearch, snapshot, none), `outcome` (ok, error, rejected) |
+| `planner.plans` | counter | `conference.id`, `plan.source` (github, interests, github+interests), `search.backend` (elasticsearch, snapshot, none), `outcome` (ok, error, rejected) |
 | `planner.plan.duration` | histogram (s) | `search.backend` |
 | `planner.plan.picks` | histogram | |
 | `planner.search.fallbacks` | counter | `reason` (no_credentials, es_error) |
@@ -232,7 +241,13 @@ The app sends traces, metrics and logs over OTLP to Dash0, as service `conferenc
 
 ## AI usage
 
-This project is built with AI coding assistance: Claude Code (Anthropic) helps write code, configuration and docs, and Gitar reviews pull requests and fixes CI failures. Every change is reviewed and understood by the team before it merges.
+This project was built with substantial AI assistance, and we want to be specific about how:
+
+- **Claude Code (Anthropic, Claude Opus)** wrote most of the code, configuration and docs. One Claude Code session acted as orchestrator: it turned the team's ideas into scoped tasks, launched parallel sub-agents (each in its own git worktree and branch, opening its own pull request), relayed questions between them, merged approved PRs one at a time, and verified each deploy through Radar's MCP server (Argo CD sync, rollout, Jobs, CronJob runs, Checks) and Dash0's MCP server (traces, metrics, Agent0). Shared shapes were fixed first in [`docs/CONTRACTS.md`](docs/CONTRACTS.md) so agents could work in parallel.
+- **Gitar** reviewed every pull request against the rules in [`.gitar/`](.gitar/) and pushed fixes automatically (auto-apply). Several of the bugs it caught are listed in the sponsor table above.
+- **Radar's AI investigation** and **Dash0's Agent0** were used to diagnose live issues; their findings were treated as evidence and checked before acting.
+- **The human (Ryan Hilton)** set the product direction and every feature decision (the thesis, GitHub + LinkedIn + interests, private repos via a read-only GitHub App, live schedule changes, accounts, free-time options, the second conference), created the accounts, OAuth and GitHub Apps and credentials, tested the live app, and reviewed the result. Credentials were handled only through the Kubernetes Secret, never committed.
+- AI-generated content in the repo includes the fictional demo attendees (clearly labelled) and the logo.
 
 ---
 
