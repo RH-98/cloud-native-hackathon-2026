@@ -326,6 +326,32 @@ test('a database outage answers 503 on account routes and never touches /readyz'
   assert.equal((await fetch(`${app.base}/readyz`)).status, 200);
 });
 
+test('connections logs session lookup failures and continues as signed out', async (t) => {
+  const db = fakeDb();
+  const app = await start({ db, connections: { env: {} } });
+  t.after(app.close);
+  const { token } = await signIn(app);
+  db.getSessionUser = async () => { throw Object.assign(new Error('sensitive database detail'), { code: 'ECONNREFUSED' }); };
+
+  const original = console.error;
+  const logged = [];
+  console.error = (message) => logged.push(message);
+  t.after(() => { console.error = original; });
+
+  const res = await fetch(`${app.base}/api/connections`, {
+    method: 'POST',
+    headers: { cookie: `${gh.SESSION_COOKIE}=${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      conferenceId: 'kubecon-na-2026',
+      profile: { username: null, tools: [{ name: 'argo-cd', weight: 1 }], languages: [], topics: [], keywords: [] },
+      limit: 20,
+    }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).demoData, true);
+  assert.deepEqual(logged, ['POST /api/connections session lookup failed: ECONNREFUSED']);
+});
+
 test('migrations are idempotent and run under an advisory lock', async () => {
   for (const stmt of MIGRATION_SQL.split(';').map((s) => s.trim()).filter(Boolean)) {
     assert.match(stmt, /^CREATE (TABLE|INDEX) IF NOT EXISTS /, stmt.slice(0, 60));
