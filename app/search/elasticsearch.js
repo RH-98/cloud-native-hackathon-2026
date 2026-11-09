@@ -5,6 +5,7 @@
 const { Client } = require('@elastic/elasticsearch');
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const terms = require('../planner/terms');
+const metrics = require('../metrics');
 
 const tracer = trace.getTracer('conference-search');
 
@@ -313,25 +314,32 @@ async function searchSessions(client, { conferenceId, profile, days, levels, siz
     'search.days': (days || []).join(','),
   };
   return withSpan('es.search_sessions', attributes, async (span) => {
-    const built = buildSessionSearch({ conferenceId, profile, days, levels, size, utcOffset });
-    span.setAttribute('search.terms', built.terms.length);
-    let hits;
+    const startedAt = metrics.now();
+    let fusion = 'rrf';
     try {
-      const res = await client.search(built.request, SEARCH_TRANSPORT);
-      hits = res.hits.hits;
-      span.setAttribute('es.fusion', 'rrf');
-    } catch (err) {
-      if (!rrfUnsupported(err)) throw err;
-      span.addEvent('rrf_unsupported', { 'http.status_code': (err.meta && err.meta.statusCode) || 0 });
-      const [lexical, semantic] = await Promise.all([
-        client.search({ ...built.common, query: built.lexical }, SEARCH_TRANSPORT),
-        client.search({ ...built.common, query: built.semantic }, SEARCH_TRANSPORT),
-      ]);
-      hits = fuseRrf([lexical.hits.hits, semantic.hits.hits], { size });
-      span.setAttribute('es.fusion', 'js');
+      const built = buildSessionSearch({ conferenceId, profile, days, levels, size, utcOffset });
+      span.setAttribute('search.terms', built.terms.length);
+      let hits;
+      try {
+        const res = await client.search(built.request, SEARCH_TRANSPORT);
+        hits = res.hits.hits;
+        span.setAttribute('es.fusion', 'rrf');
+      } catch (err) {
+        if (!rrfUnsupported(err)) throw err;
+        fusion = 'js';
+        span.addEvent('rrf_unsupported', { 'http.status_code': (err.meta && err.meta.statusCode) || 0 });
+        const [lexical, semantic] = await Promise.all([
+          client.search({ ...built.common, query: built.lexical }, SEARCH_TRANSPORT),
+          client.search({ ...built.common, query: built.semantic }, SEARCH_TRANSPORT),
+        ]);
+        hits = fuseRrf([lexical.hits.hits, semantic.hits.hits], { size });
+        span.setAttribute('es.fusion', 'js');
+      }
+      span.setAttribute('es.hits', hits.length);
+      return toRecommendations(hits, built.terms);
+    } finally {
+      metrics.recordSearchDuration({ index: 'sessions', fusion, startedAt });
     }
-    span.setAttribute('es.hits', hits.length);
-    return toRecommendations(hits, built.terms);
   });
 }
 
@@ -362,10 +370,15 @@ async function searchSponsors(client, { conferenceId, profile } = {}) {
       span.setAttribute('es.hits', 0);
       return [];
     }
-    const res = await client.search(built.request, SEARCH_TRANSPORT);
-    const sponsors = res.hits.hits.map((h) => h._source);
-    span.setAttribute('es.hits', sponsors.length);
-    return terms.rankSponsors(sponsors, built.terms);
+    const startedAt = metrics.now();
+    try {
+      const res = await client.search(built.request, SEARCH_TRANSPORT);
+      const sponsors = res.hits.hits.map((h) => h._source);
+      span.setAttribute('es.hits', sponsors.length);
+      return terms.rankSponsors(sponsors, built.terms);
+    } finally {
+      metrics.recordSearchDuration({ index: 'sponsors', fusion: 'none', startedAt });
+    }
   });
 }
 

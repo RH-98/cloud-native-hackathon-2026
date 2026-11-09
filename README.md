@@ -126,6 +126,25 @@ Load the attendees into Elasticsearch with the one-off Job (`kubectl create -f j
 cd app && ELASTICSEARCH_URL=<endpoint> ELASTICSEARCH_API_KEY=<key> npm run load:attendees
 ```
 
+## Observability (Dash0)
+
+The app sends traces, metrics and logs over OTLP to Dash0, as service `conference-planner`; the loader Job reports as `conference-loader`.
+
+**Spans:** HTTP and outbound calls come from the Node auto-instrumentation. On top of those, the app adds its own spans: `plan.build`, `es.search_sessions`, `es.search_sponsors`, `es.search_attendees`, and for the loaders, `es.ensure_indices`, `es.load_snapshot`, `es.ensure_attendees_index`, `es.load_attendees` and `es.bulk`. A plan that falls back to the snapshot records a `search_fallback` event on `plan.build`.
+
+**Custom metrics** ([`app/metrics.js`](app/metrics.js), meter `conference-planner`). Every attribute value comes from a fixed set; none holds a username or free text.
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `planner.plans` | counter | `conference.id`, `plan.source` (github, interests), `search.backend` (elasticsearch, snapshot, none), `outcome` (ok, error, rejected) |
+| `planner.plan.duration` | histogram (s) | `search.backend` |
+| `planner.plan.picks` | histogram | |
+| `planner.search.fallbacks` | counter | `reason` (no_credentials, es_error) |
+| `planner.search.duration` | histogram (s) | `index` (sessions, sponsors), `fusion` (rrf, js, snapshot, none) |
+| `github.ratelimit.remaining` | gauge | |
+
+[`dash0/`](dash0/) holds the Dash0 assets as code: a Perses dashboard, check rules in `PrometheusRule` format with an SLO suggestion, and import steps in its README. It also has [`dash0/agent0-findings.md`](dash0/agent0-findings.md), the findings of an Agent0 health investigation of both services.
+
 ## AI usage
 
 This project is built with AI coding assistance: Claude Code (Anthropic) helps write code, configuration and docs, and Gitar reviews pull requests and fixes CI failures. Every change is reviewed and understood by the team before it merges.
