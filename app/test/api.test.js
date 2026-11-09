@@ -267,3 +267,21 @@ test('with both inputs, a GitHub failure falls back to the interests with a warn
   const res = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', github: 'octocat', interests: 'rust' });
   assert.equal(res.status, 400);
 });
+
+test('readJsonBody records the declared and read body size on the active span', async (t) => {
+  const { Readable } = require('node:stream');
+  const { trace } = require('@opentelemetry/api');
+  const { readJsonBody } = require('../api/http');
+  const attrs = {};
+  const span = { setAttribute: (k, v) => { attrs[k] = v; } };
+  const original = trace.getActiveSpan;
+  trace.getActiveSpan = () => span;
+  t.after(() => { trace.getActiveSpan = original; });
+  const body = Buffer.from(JSON.stringify({ plan: { sessions: ['a', 'b'] } }));
+  const req = Readable.from([body]);
+  req.headers = { 'content-type': 'application/json', 'content-length': String(body.length) };
+  const parsed = await readJsonBody(req);
+  assert.deepEqual(parsed, { plan: { sessions: ['a', 'b'] } });
+  assert.equal(attrs['http.request.body.size'], body.length);
+  assert.equal(attrs['app.request.body.decoded_size'], body.length);
+});
