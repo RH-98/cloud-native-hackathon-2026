@@ -19,3 +19,7 @@ Checks: https://app.radarhq.io/checks?scope=k8acMtt3p7U&namespace=team-ryan-hilt
 - Radar showed crash loops in platform namespaces (argo-rollouts, cnpg-system, monitoring), failed Checks requests, and intermittent `Unauthorized` from MCP calls.
 - Radar's log view of `argocd-application-controller-0` showed `connection refused` to the vcluster API server at 18:32 UTC. Argo CD reconciled at 18:33:35 UTC, about a minute later, and synced `a1b88d8`.
 - 11:37: the URL served `version 658246d`. The platform had a short API-server interruption, not an ongoing outage, so we didn't change anything.
+
+## During the day
+
+- 1:55 PM: we created the one-off Job `load-elasticsearch-001` through Radar's MCP server (`apply_resource`, mode=create) with image `a3ecd54`. It created the Elasticsearch indices and indexed 845 documents (600 KubeCon sessions, 244 sponsors, 1 conference record) in 13.9s, and Radar showed it Complete about 30s after creation. Its traces go to Dash0 as `conference-loader`.
