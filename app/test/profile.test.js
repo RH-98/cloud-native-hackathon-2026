@@ -268,6 +268,14 @@ test('github: no token means no Authorization header', async () => {
   assert.ok(fake.calls.every((c) => c.headers.Authorization === undefined));
 });
 
+test('github: skips optional API jobs beyond the anonymous budget without marking partial', async () => {
+  const fake = fakeGithub();
+  const p = await buildProfile({ github: 'octo-dev' }, deps(fake, { maxApiCalls: 8 }));
+  const apiCalls = fake.calls.filter((c) => c.url.startsWith('https://api.github.com/'));
+  assert.equal(apiCalls.length, 8);
+  assert.equal(p.scan.partial, false);
+});
+
 test('github: unknown user is not_found', async () => {
   const fake = fakeGithub({ user: 'someone-else' });
   await assert.rejects(buildProfile({ github: 'octo-dev' }, deps(fake)), (err) => {

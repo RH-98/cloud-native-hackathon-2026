@@ -58,6 +58,12 @@ test('README lists of tools are not usage: 4+ tools on a line, table rows, short
       '- Policies are enforced by Kyverno in every cluster here\n- Network policy comes from Cilium on our nodes',
   );
   assert.ok(sentences.has('kyverno') && sentences.has('cilium'));
+
+  const nestedList = countMentions(
+    '- We use Kubernetes across the production clusters and services that our team maintains\n' +
+      '- We compare Cilium, Kyverno, Crossplane, and Falco while evaluating options for deployment',
+  );
+  assert.deepEqual([...nestedList.keys()], ['kubernetes']);
 });
 
 test('mention-only tools rank far below dependency tools; one README alone does not count', () => {
