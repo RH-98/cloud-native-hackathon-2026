@@ -50,7 +50,8 @@ function createHandler({ buildProfile, buildPlan, publicDir, connections, accoun
     if (p === '/api/connections') {
       if (req.method !== 'POST') return sendError(res, 'method_not_allowed', 'Use POST', { allow: 'POST' });
       const token = accounts.enabled ? sessionToken(req) : null;
-      return Promise.resolve(token ? accounts.db.getSessionUser(token) : null)
+      // Database down: carry on as signed out (demo attendees only).
+      return Promise.resolve(token ? accounts.db.getSessionUser(token).catch(() => null) : null)
         .then((viewer) => handleConnections(req, res, { viewer }))
         .catch(() => {
           if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
