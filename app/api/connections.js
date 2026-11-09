@@ -78,6 +78,8 @@ async function handleConnections(body, deps = {}) {
       const span = trace.getActiveSpan();
       span?.recordException(err);
       span?.setStatus({ code: SpanStatusCode.ERROR, message: 'connection states unavailable' });
+      span?.setAttribute('accounts.db_error', true);
+      console.error(`connections: request states unavailable (${err && (err.code || err.name)})`);
       return null;
     });
     if (states) connections = withRequestStates(connections, states);

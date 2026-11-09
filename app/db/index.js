@@ -353,7 +353,8 @@ function createDb(pool) {
     // Only the recipient answers. Returns the updated request, or null.
     async answerConnectionRequest(id, toUserId, status) {
       const { rows } = await q(
-        `UPDATE connection_requests SET status = $3, updated_at = now()
+        // A decline keeps updated_at, so the sender can't infer it from the time or order.
+        `UPDATE connection_requests SET status = $3::text, updated_at = CASE WHEN $3::text = 'declined' THEN updated_at ELSE now() END
           WHERE id = $1 AND to_user_id = $2 AND status <> 'accepted'
           RETURNING id`,
         [id, toUserId, status],
