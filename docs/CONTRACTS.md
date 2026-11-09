@@ -94,6 +94,27 @@ Plan:
 }
 ```
 
+A free slot (`pick: null`, any open stretch of 10 minutes or more between 9:00 and 18:00) also lists what you could do in it:
+
+```jsonc
+{
+  "start": "2026-11-10T12:00:00-07:00", "end": "2026-11-10T13:00:00-07:00",
+  "pick": null, "pinned": false,
+  "backups": [Recommendation],  // up to 3 sessions on during the window, best match first even below the pick floor;
+                                // reasons[0] is "Fits this window", "Starts in this window" or "Already running" (20+ min left),
+                                // then any match reasons. No skipped sessions; sponsored demos only when nothing else is on.
+                                // Empty for windows under 15 minutes.
+  "booths": [{ "sponsor": Sponsor, "score": 0.7, "reasons": ["…"] }],
+                                // on expo days: the day's booths for windows of 30+ min, one top match for 15-30 min
+  "logistics": [{ "title": "Lunch", "type": "meal", "start": "…", "end": "…", "room": "…" }],
+                                // kind "logistics" items overlapping the window (type: meal | break | social | expo | other);
+                                // titles lose leading emoji and ALL CAPS; all-day services (over 4 h) are left out
+  "suggestion": "Lunch is served 12:20–2:20 PM in Halls A-C."  // one line for the window; "Short break: …" under 15 min
+}
+```
+
+Free-slot options never export: the `.ics` file and "Copy plan as text" list only picks. "Add to plan" on a free-slot session pins it (re-requests with `options.pinned`).
+
 `Recommendation` is `{ "session": Session, "score": 0.83, "reasons": ["Matches argo-cd", "Beginner"] }`. `Session` and `Sponsor` are exactly the objects in [`app/data/conference-format.md`](../app/data/conference-format.md). `reasons` are short, human-readable strings the UI shows as-is.
 
 ## HTTP API (`app/server.js`)

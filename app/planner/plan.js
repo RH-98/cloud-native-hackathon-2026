@@ -11,6 +11,11 @@ const RELATIVE_FLOOR = 0.5;
 const KEYNOTE_TRACK = 'Keynote Sessions';
 const KEYNOTE_SCORE = Math.round((MIN_SCORE + 0.01) * 1000) / 1000;
 const MIN_GAP_MINUTES = 30; // free time this long gets booth suggestions
+const FREE_SLOT_MINUTES = 10; // free time this long becomes a slot with options
+const SHORT_GAP_MINUTES = 15; // below this, free time is just a walk to the next room
+const FREE_BACKUPS = 3;
+const SHORT_GAP_BOOTHS = 1; // booths offered in a gap of 15 to 30 minutes on an expo day
+const LONG_LOGISTICS_MINUTES = 4 * 60; // coat check and badge pick-up run all day: not an option
 const DAY_START = '09:00:00';
 const DAY_END = '18:00:00';
 const BOOTHS_PER_GAP = 2;
@@ -166,15 +171,15 @@ function bestSchedule(recs, gapMs = 0) {
   return chosen.reverse();
 }
 
-// Free windows of at least MIN_GAP_MINUTES between DAY_START and DAY_END.
-function freeGaps(date, picks, utcOffset) {
+// Free windows of at least minMinutes between DAY_START and DAY_END.
+function freeGaps(date, picks, utcOffset, minMinutes = MIN_GAP_MINUTES) {
   const dayStart = `${date}T${DAY_START}${utcOffset}`;
   const dayEnd = `${date}T${DAY_END}${utcOffset}`;
   const gaps = [];
   let cursor = dayStart;
   const sorted = [...picks].sort((a, b) => ms(a.start) - ms(b.start));
   const push = (start, end) => {
-    if ((ms(end) - ms(start)) / MINUTE >= MIN_GAP_MINUTES) gaps.push({ start, end });
+    if ((ms(end) - ms(start)) / MINUTE >= minMinutes) gaps.push({ start, end });
   };
   for (const s of sorted) {
     if (ms(cursor) >= ms(dayEnd)) break;
@@ -209,7 +214,7 @@ function pickSponsor(ranked, usedToday, usedEver) {
   );
 }
 
-function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsOpen, usedSponsors }) {
+function planDay({ date, recs, pinnedRecs, pool = [], logistics = [], options, utcOffset, sponsors, boothsOpen, usedSponsors }) {
   const gapMs = options.breakMinutes * MINUTE;
   const pinnedIds = new Set(pinnedRecs.map((r) => r.session.id));
   const good = recs.filter((r) => r.score >= MIN_SCORE && !pinnedIds.has(r.session.id));
@@ -244,13 +249,17 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
     return { start: rec.session.start, end: rec.session.end, pick: rec, backups, pinned };
   });
 
-  const gaps = freeGaps(date, picks.map((p) => p.rec.session), utcOffset);
-  for (const gap of gaps) slots.push({ start: gap.start, end: gap.end, pick: null, backups: [], pinned: false });
+  const pickedSessions = picks.map((p) => p.rec.session);
+  const gaps = freeGaps(date, pickedSessions, utcOffset);
+  const freeSlots = freeGaps(date, pickedSessions, utcOffset, FREE_SLOT_MINUTES).map((gap) => ({
+    start: gap.start, end: gap.end, pick: null, backups: [], pinned: false, booths: [], logistics: [], suggestion: '',
+  }));
+  slots.push(...freeSlots);
   slots.sort((a, b) => ms(a.start) - ms(b.start));
 
   const booths = [];
+  const usedToday = new Set();
   if (boothsOpen && sponsors.length) {
-    const usedToday = new Set();
     const take = (gap) => {
       const next = pickSponsor(sponsors, usedToday, usedSponsors);
       if (!next) return false;
@@ -262,7 +271,142 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
     for (const gap of gaps) for (let i = 0; i < BOOTHS_PER_GAP && take({ start: gap.start, end: gap.end }); i += 1);
     for (let i = 0; i < BOOTHS_PER_DAY && take(null); i += 1);
   }
+
+  // Options for each free slot: sessions on anyway, meals and breaks, booths.
+  for (const slot of freeSlots) {
+    const mins = (ms(slot.end) - ms(slot.start)) / MINUTE;
+    slot.logistics = logisticsIn(slot, logistics);
+    if (mins >= SHORT_GAP_MINUTES) slot.backups = freeBackups(slot, pool, pickedIds);
+    slot.booths = booths
+      .filter((b) => b.gap && b.gap.start === slot.start && b.gap.end === slot.end)
+      .map(({ sponsor, score, reasons }) => ({ sponsor, score, reasons }));
+    if (boothsOpen && !slot.booths.length && mins >= SHORT_GAP_MINUTES) {
+      for (let i = 0; i < SHORT_GAP_BOOTHS; i += 1) {
+        const next = sponsors.find((r) => !usedToday.has(r.sponsor.id));
+        if (!next) break;
+        usedToday.add(next.sponsor.id);
+        slot.booths.push({ sponsor: next.sponsor, score: next.score, reasons: next.reasons });
+      }
+    }
+    slot.suggestion = suggestionFor(mins, slot);
+  }
   return { date, slots, booths };
+}
+
+// ---------- Options for free time ----------
+
+const DEMO_TRACK = /Demo Theater|Solutions Showcase/i;
+const isDemo = (session) => Boolean(session.sponsored) || DEMO_TRACK.test(session.track || '');
+
+// How a session sits in a free window, or null when it is no real option:
+// it starts in the window (at least 5 minutes before it ends), or it is
+// already running and at least 20 minutes of it fall in the window.
+function windowFit(session, gap) {
+  const s = ms(session.start);
+  const e = ms(session.end);
+  const gs = ms(gap.start);
+  const ge = ms(gap.end);
+  if (s >= gs && s <= ge - 5 * MINUTE) return e <= ge ? 'Fits this window' : 'Starts in this window';
+  if (s < gs && e > gs && (Math.min(e, ge) - gs) / MINUTE >= 20) return 'Already running';
+  return null;
+}
+
+// Up to FREE_BACKUPS sessions on during a free window, best match first even
+// when below the pick floor. Sponsored demos only when nothing else is on.
+function freeBackups(gap, pool, pickedIds) {
+  const fits = [];
+  for (const rec of pool) {
+    if (pickedIds.has(rec.session.id)) continue;
+    const fit = windowFit(rec.session, gap);
+    if (fit) fits.push({ rec, fit });
+  }
+  const real = fits.filter((f) => !isDemo(f.rec.session));
+  return (real.length ? real : fits)
+    .sort(
+      (a, b) =>
+        b.rec.score - a.rec.score ||
+        Number(a.fit === 'Already running') - Number(b.fit === 'Already running') ||
+        ms(a.rec.session.start) - ms(b.rec.session.start) ||
+        a.rec.session.id.localeCompare(b.rec.session.id),
+    )
+    .slice(0, FREE_BACKUPS)
+    .map(({ rec, fit }) => ({ session: rec.session, score: rec.score, reasons: [fit, ...rec.reasons.filter((r) => r !== fit)] }));
+}
+
+const MEAL = /breakfast|brunch|lunch|dinner/i;
+const PLAIN_MEAL = /^(breakfast|brunch|lunch|dinner)( break)?$/i;
+const SOCIAL = /happy hour|reception|party|social|mixer/i;
+const BREAK = /coffee|break|snack/i;
+const EXPO = /expo|exhibit|sponsor hall|showcase/i;
+
+function logisticsType(title) {
+  if (MEAL.test(title)) return 'meal';
+  if (SOCIAL.test(title)) return 'social';
+  if (BREAK.test(title)) return 'break';
+  if (EXPO.test(title)) return 'expo';
+  return 'other';
+}
+
+// "🍲 Lunch" -> "Lunch", "LUNCH BREAK" -> "Lunch break".
+function cleanTitle(title) {
+  const t = String(title || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  return /\p{Ll}/u.test(t) ? t : t.charAt(0) + t.slice(1).toLowerCase();
+}
+
+// Meals, breaks, receptions and expo hours overlapping a free window. All-day
+// services (coat check, badge pick-up) are left out.
+function logisticsIn(gap, items) {
+  return items
+    .filter((l) => ms(l.start) < ms(gap.end) && ms(l.end) > ms(gap.start) && minutes(l) <= LONG_LOGISTICS_MINUTES)
+    .sort((a, b) => ms(a.start) - ms(b.start))
+    .map((l) => {
+      const title = cleanTitle(l.title) || 'Break';
+      return { title, type: logisticsType(title), start: l.start, end: l.end, room: l.room || null };
+    });
+}
+
+// Wall-clock times straight from the ISO strings, which carry the conference's offset.
+function clock(iso) {
+  const h = Number(iso.slice(11, 13));
+  return { text: `${h % 12 || 12}:${iso.slice(14, 16)}`, half: h >= 12 ? 'PM' : 'AM' };
+}
+
+function clockRange(start, end) {
+  const a = clock(start);
+  const b = clock(end);
+  return a.half === b.half ? `${a.text}–${b.text} ${b.half}` : `${a.text} ${a.half}–${b.text} ${b.half}`;
+}
+
+// "Salt Palace | Level 1 | Halls A-C" -> "Halls A-C".
+function shortRoom(room) {
+  return room ? String(room).split('|').pop().trim() : '';
+}
+
+// One friendly line for a free window, in place of a bare "free".
+function suggestionFor(mins, slot) {
+  const { logistics, booths, backups } = slot;
+  const food =
+    logistics.find((l) => PLAIN_MEAL.test(l.title)) ||
+    ['meal', 'break', 'social', 'expo'].map((t) => logistics.find((l) => l.type === t)).find(Boolean);
+  const where = food && shortRoom(food.room) ? ` in ${shortRoom(food.room)}` : '';
+  if (mins < SHORT_GAP_MINUTES) {
+    return food && food.type !== 'expo'
+      ? `Short break: ${food.title.toLowerCase()}${where} on the way to your next room.`
+      : 'Short break: walk to your next room.';
+  }
+  const parts = [];
+  if (food) {
+    const when = clockRange(food.start, food.end);
+    if (PLAIN_MEAL.test(food.title)) parts.push(`${food.title.replace(/ break$/i, '')} is served ${when}${where}.`);
+    else parts.push(`${food.title}: ${when}${where}.`);
+  }
+  if (booths.length) parts.push(`Time for ${booths.length === 1 ? 'a booth visit' : `${booths.length} booth visits`}.`);
+  if (!parts.length) {
+    if (backups.length) parts.push('Nothing matched you strongly, but a few sessions are on if you want one.');
+    else if (mins >= 60) parts.push('Rest, refill your water, or wander the hallway track.');
+    else parts.push('Take a breather before your next session.');
+  }
+  return parts.join(' ');
 }
 
 // LF events call the track "Keynote Sessions"; the Sessionize importer uses "Keynote".
@@ -316,6 +460,14 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
       return { session, score: found ? found.score : 0, reasons: ['Pinned by you', ...reasons] };
     });
 
+  // Free-time options: every eligible session that day, matched or not, and the day's logistics.
+  const eligibleIds = new Set(eligible.map((r) => r.session.id));
+  const pool = [
+    ...eligible,
+    ...(snapshot.sessions || []).filter((s) => !eligibleIds.has(s.id) && isEligible(s)).map((session) => ({ session, score: 0, reasons: [] })),
+  ];
+  const logistics = (snapshot.sessions || []).filter((s) => s.kind === 'logistics' && s.start && s.end);
+
   const openDays = boothDays(snapshot);
   const ranked = sponsors.length ? sponsors : fallbackSponsors(snapshot, tierRank);
   const usedSponsors = new Set();
@@ -324,6 +476,8 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
       date,
       recs: eligible.filter((r) => r.session.start.slice(0, 10) === date),
       pinnedRecs: pinnedRecs.filter((r) => r.session.start.slice(0, 10) === date),
+      pool: pool.filter((r) => r.session.start.slice(0, 10) === date),
+      logistics: logistics.filter((l) => l.start.slice(0, 10) === date),
       options,
       utcOffset,
       sponsors: ranked,
@@ -344,5 +498,7 @@ module.exports = {
   conflicts,
   bestSchedule,
   freeGaps,
+  windowFit,
+  suggestionFor,
   planDays,
 };
