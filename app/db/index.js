@@ -7,7 +7,8 @@
 // the planner state a user saved; and, only after opting in, derived social
 // signals (tool, topic, language and keyword labels with weights), and, after
 // the user connects the read-only GitHub App, tool and language labels from
-// their private repos (no repo names). Never a
+// their private repos (no repo names); and connection requests between
+// opted-in attendees (who asked whom, and the answer). Never a
 // GitHub access token, never code.
 //
 // Every query is parameterized. pg is traced by the OpenTelemetry
@@ -58,6 +59,22 @@ CREATE TABLE IF NOT EXISTS private_profiles (
   profile    jsonb NOT NULL,
   scanned_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS connection_requests (
+  id             bigserial PRIMARY KEY,
+  conference_id  text NOT NULL,
+  from_user_id   bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  to_user_id     bigint REFERENCES users(id) ON DELETE CASCADE,
+  to_demo_handle text,
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CHECK ((to_user_id IS NULL) <> (to_demo_handle IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS connection_requests_user_uidx
+  ON connection_requests (conference_id, from_user_id, to_user_id) WHERE to_user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS connection_requests_demo_uidx
+  ON connection_requests (conference_id, from_user_id, to_demo_handle) WHERE to_demo_handle IS NOT NULL;
+CREATE INDEX IF NOT EXISTS connection_requests_to_idx ON connection_requests (to_user_id, status);
 `;
 
 // Sessions are looked up by the SHA-256 of the cookie's token, so a database
@@ -71,6 +88,21 @@ function toUser(row) {
   const user = { id: String(row.id), githubId: String(row.github_id), login: row.login, name: row.name, avatarUrl: row.avatar_url };
   if (row.created_at) user.memberSince = new Date(row.created_at).toISOString();
   return user;
+}
+
+function toRequest(r) {
+  return {
+    id: String(r.id),
+    conferenceId: r.conference_id,
+    fromUserId: String(r.from_user_id),
+    toUserId: r.to_user_id == null ? null : String(r.to_user_id),
+    toDemoHandle: r.to_demo_handle || null,
+    status: r.status,
+    createdAt: new Date(r.created_at).toISOString(),
+    updatedAt: new Date(r.updated_at).toISOString(),
+    from: { login: r.from_login, name: r.from_name || null },
+    to: r.to_user_id == null ? null : { login: r.to_login, name: r.to_name || null },
+  };
 }
 
 // pool: anything with query(text, params) and connect() (a pg.Pool, or a fake in tests).
@@ -204,6 +236,7 @@ function createDb(pool) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        await client.query('DELETE FROM connection_requests WHERE from_user_id = $1 OR to_user_id = $1', [userId]);
         await client.query('DELETE FROM social_profiles WHERE user_id = $1', [userId]);
         await client.query('DELETE FROM private_profiles WHERE user_id = $1', [userId]);
         await client.query('DELETE FROM saved_plans WHERE user_id = $1', [userId]);
@@ -255,6 +288,91 @@ function createDb(pool) {
 
     async deletePrivateProfile(userId) {
       await q('DELETE FROM private_profiles WHERE user_id = $1', [userId]);
+    },
+
+    // ---------- Connection requests ("People to meet": Connect) ----------
+
+    // Every request the user sent or received, optionally for one conference.
+    // Only public account fields (login, name) of the other side leave here.
+    async listConnectionRequests(userId, conferenceId = null) {
+      const { rows } = await q(
+        `SELECT r.id, r.conference_id, r.from_user_id, r.to_user_id, r.to_demo_handle, r.status, r.created_at, r.updated_at,
+                fu.login AS from_login, fu.name AS from_name, tu.login AS to_login, tu.name AS to_name
+           FROM connection_requests r
+           JOIN users fu ON fu.id = r.from_user_id
+           LEFT JOIN users tu ON tu.id = r.to_user_id
+          WHERE (r.from_user_id = $1 OR r.to_user_id = $1) AND ($2::text IS NULL OR r.conference_id = $2)
+          ORDER BY r.updated_at DESC
+          LIMIT 500`,
+        [userId, conferenceId],
+      );
+      return rows.map(toRequest);
+    },
+
+    async getConnectionRequest(id) {
+      const { rows } = await q(
+        `SELECT r.id, r.conference_id, r.from_user_id, r.to_user_id, r.to_demo_handle, r.status, r.created_at, r.updated_at,
+                fu.login AS from_login, fu.name AS from_name, tu.login AS to_login, tu.name AS to_name
+           FROM connection_requests r
+           JOIN users fu ON fu.id = r.from_user_id
+           LEFT JOIN users tu ON tu.id = r.to_user_id
+          WHERE r.id = $1`,
+        [id],
+      );
+      return rows[0] ? toRequest(rows[0]) : null;
+    },
+
+    // Creates a request, or returns the existing one for the same pair
+    // ({ request, created }). to: { userId } or { demoHandle }.
+    async createConnectionRequest({ conferenceId, fromUserId, to, status = 'pending' }) {
+      const toUserId = to.userId || null;
+      const toDemo = to.demoHandle || null;
+      const conflict = toUserId
+        ? '(conference_id, from_user_id, to_user_id) WHERE to_user_id IS NOT NULL'
+        : '(conference_id, from_user_id, to_demo_handle) WHERE to_demo_handle IS NOT NULL';
+      const { rows } = await q(
+        `INSERT INTO connection_requests (conference_id, from_user_id, to_user_id, to_demo_handle, status)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT ${conflict} DO NOTHING
+         RETURNING id`,
+        [conferenceId, fromUserId, toUserId, toDemo, status],
+      );
+      if (rows[0]) return { request: await this.getConnectionRequest(rows[0].id), created: true };
+      const existing = await q(
+        `SELECT id FROM connection_requests
+          WHERE conference_id = $1 AND from_user_id = $2
+            AND to_user_id IS NOT DISTINCT FROM $3 AND to_demo_handle IS NOT DISTINCT FROM $4`,
+        [conferenceId, fromUserId, toUserId, toDemo],
+      );
+      return { request: existing.rows[0] ? await this.getConnectionRequest(existing.rows[0].id) : null, created: false };
+    },
+
+    // Only the recipient answers. Returns the updated request, or null.
+    async answerConnectionRequest(id, toUserId, status) {
+      const { rows } = await q(
+        `UPDATE connection_requests SET status = $3, updated_at = now()
+          WHERE id = $1 AND to_user_id = $2 AND status <> 'accepted'
+          RETURNING id`,
+        [id, toUserId, status],
+      );
+      return rows[0] ? this.getConnectionRequest(rows[0].id) : null;
+    },
+
+    // The sender withdraws a request that is not (yet) accepted. True when deleted.
+    async withdrawConnectionRequest(id, fromUserId) {
+      const { rowCount } = await q(
+        `DELETE FROM connection_requests WHERE id = $1 AND from_user_id = $2 AND status <> 'accepted'`,
+        [id, fromUserId],
+      );
+      return rowCount > 0;
+    },
+
+    async countIncomingConnectionRequests(userId) {
+      const { rows } = await q(
+        `SELECT count(*)::int AS n FROM connection_requests WHERE to_user_id = $1 AND status = 'pending'`,
+        [userId],
+      );
+      return rows[0] ? Number(rows[0].n) || 0 : 0;
     },
 
     // Real attendees who opted in, for the social matcher. Each entry:

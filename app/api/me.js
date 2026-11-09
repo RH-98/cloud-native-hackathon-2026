@@ -1,5 +1,6 @@
 // The signed-in user's account: GET|DELETE /api/me, GET /api/me/plans,
-// GET|PUT|DELETE /api/me/plan, GET|PUT /api/me/social, DELETE /api/me/private-profile. Cookie-authenticated (sb_session); writes need a
+// GET|PUT|DELETE /api/me/plan, GET|PUT /api/me/social, DELETE /api/me/private-profile,
+// and /api/me/connections (connection requests, app/api/requests.js). Cookie-authenticated (sb_session); writes need a
 // same-origin request (CSRF). With accounts off, GET /api/me answers
 // { enabled: false, user: null } and the other routes 404.
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
@@ -7,6 +8,7 @@ const { HttpError, send, sendJson, sendError, readJsonBody } = require('./http')
 const { validatePlanRequest } = require('./plan');
 const { sessionToken, sameOrigin } = require('../auth');
 const { clearSessionCookie } = require('../auth/github');
+const { createRequestRoutes } = require('./requests');
 
 const CONFERENCE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -157,6 +159,8 @@ function createMeHandler(accounts) {
     if (!sameOrigin(req, accounts.publicUrl)) throw new HttpError('forbidden', 'Cross-site request refused');
   }
 
+  const routeRequests = createRequestRoutes({ db, requireUser, requireSameOrigin });
+
   async function route(req, res, url) {
     const p = url.pathname;
     const m = req.method;
@@ -172,7 +176,14 @@ function createMeHandler(accounts) {
           privateRepos.repoCount = row ? Number(row.profile?.repoCount) || 0 : 0;
           privateRepos.scannedAt = row ? row.scannedAt : null;
         }
-        return sendJson(res, 200, { enabled: true, user: publicUser(user), privateRepos });
+        const body = { enabled: true, user: publicUser(user), privateRepos };
+        // For the header badge: how many connection requests wait for an answer.
+        // Best effort: a failure here leaves the badge out, not the whole answer.
+        if (user && typeof accounts.db.countIncomingConnectionRequests === 'function') {
+          const incoming = await accounts.db.countIncomingConnectionRequests(user.id).catch(() => null);
+          if (incoming !== null) body.connectionRequests = { incoming };
+        }
+        return sendJson(res, 200, body);
       }
       if (m === 'DELETE') {
         if (!accounts.enabled) return sendError(res, 'not_found', 'Accounts are not enabled on this server');
@@ -263,6 +274,8 @@ function createMeHandler(accounts) {
       await db((d) => d.deletePrivateProfile(user.id));
       return sendJson(res, 200, { deleted: true });
     }
+
+    if (p === '/api/me/connections' || p.startsWith('/api/me/connections/')) return routeRequests(req, res, url);
 
     return sendError(res, 'not_found', 'No such API route');
   }
