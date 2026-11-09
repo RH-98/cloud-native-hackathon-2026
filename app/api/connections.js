@@ -81,11 +81,11 @@ async function handleConnections(body, deps = {}) {
 
 // HTTP adapter for the router. deps go to handleConnections (tests pass fakes).
 function createConnectionsHandler(deps = {}) {
-  return async function serveConnections(req, res) {
+  return async function serveConnections(req, res, requestDeps = {}) {
     const span = trace.getActiveSpan();
     try {
       const body = await readJsonBody(req, BODY_LIMIT);
-      const { status, json } = await handleConnections(body, deps);
+      const { status, json } = await handleConnections(body, { ...deps, ...requestDeps });
       span?.setAttributes({
         'connections.count': json.connections ? json.connections.length : 0,
         'connections.backend': json.searchBackend || 'none',

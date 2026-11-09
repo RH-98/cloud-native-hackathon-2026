@@ -1,0 +1,16 @@
+# Postgres for accounts (saved plans, social opt-ins), run by the
+# CloudNativePG operator that's already in the cluster. From
+# examples/postgres/cluster.yaml. The operator creates Secret db-app (the
+# app's DATABASE_URL, key uri) and Service db-rw (port 5432).
+# Budget: one pod (100m CPU / 256Mi requests, 500m / 512Mi limits) and one 1Gi PVC.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: db
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }

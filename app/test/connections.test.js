@@ -144,7 +144,7 @@ test('POST /api/connections returns opted-in demo matches as JSON', async (t) =>
   const body = await res.json();
   assert.equal(body.demoData, true);
   assert.equal(body.connections.length, 5);
-  assert.deepEqual(Object.keys(body.connections[0].attendee).sort(), ['bio', 'displayName', 'handle', 'role']);
+  assert.deepEqual(Object.keys(body.connections[0].attendee).sort(), ['bio', 'demo', 'displayName', 'handle', 'role']);
 });
 
 test('POST /api/connections answers errors in the contract format', async (t) => {

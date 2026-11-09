@@ -35,6 +35,25 @@ function sessionIndex(conferenceId) {
   return sessionIndexes.get(conferenceId);
 }
 
+// Real attendees who signed in with GitHub and opted in (app/db), in the
+// attendee shape the matcher takes. [] when accounts are off.
+async function realAttendees(conferenceId, deps) {
+  const list = deps.realAttendees || require('../db').listOptedInProfiles;
+  const rows = await list(conferenceId);
+  return (rows || []).map((r) => ({
+    id: `user:${r.userId}`,
+    conferenceId,
+    displayName: r.displayName || r.login,
+    handle: r.login,
+    fictional: false,
+    optIn: true,
+    role: 'Signed in with GitHub',
+    bio: null,
+    interests: r.profile || {},
+    goingTo: [],
+  }));
+}
+
 function esConfigured(env) {
   return Boolean(env.ELASTICSEARCH_URL && env.ELASTICSEARCH_API_KEY);
 }
@@ -53,6 +72,16 @@ async function suggestConnections(input, deps = {}) {
   const logger = deps.logger || console;
   const options = { limit, pickedSessionIds, firstTimer };
 
+  // Real profiles are only available to signed-in users; exclude the viewer by
+  // their authenticated account id, not by the request's profile username.
+  const real = deps.viewer
+    ? await realAttendees(conferenceId, deps)
+      .then((rows) => rows.filter((a) => a.id !== `user:${deps.viewer.id}`))
+      .catch((err) => {
+        logger.warn(`connections: could not read opted-in users (${err.message})`);
+        return [];
+      })
+    : [];
   let backend = 'snapshot';
   let results = null;
   if (deps.client || esConfigured(env)) {
@@ -60,7 +89,7 @@ async function suggestConnections(input, deps = {}) {
       const search = deps.search || require('../search/elasticsearch').searchAttendees;
       const client = deps.client || defaultClient(env);
       const candidates = await search(client, { conferenceId, profile, size: Math.max(limit * 3, 15) });
-      results = matchAttendees(profile, candidates, options);
+      results = matchAttendees(profile, [...candidates, ...real], options);
       backend = 'elasticsearch';
     } catch (err) {
       // Degrade to the in-memory matcher rather than failing the request.
@@ -69,8 +98,8 @@ async function suggestConnections(input, deps = {}) {
   }
   if (!results) {
     const attendees = deps.attendees || loadAttendees(conferenceId);
-    if (!attendees) return null;
-    results = matchAttendees(profile, attendees, options);
+    if (!attendees && !real.length) return null;
+    results = matchAttendees(profile, [...(attendees || []), ...real], options);
   }
 
   const sessions = sessionIndex(conferenceId);
