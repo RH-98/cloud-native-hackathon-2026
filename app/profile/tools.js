@@ -789,7 +789,7 @@ function countMentions(text) {
   const out = new Map();
   const lines = String(text || '').toLowerCase().split(/\r?\n/);
   const hitsByLine = lines.map((l) => (l.trim() ? mentionedIn(l) : []));
-  const skip = hitsByLine.map((h) => h.length >= LIST_TOOLS);
+  const skip = hitsByLine.map((hits) => hits.length >= LIST_TOOLS);
   for (let i = 0; i < lines.length; i++) {
     if (!LIST_ITEM.test(lines[i])) continue;
     // A run of list items: short items naming tools, LIST_TOOLS+ distinct in all.
