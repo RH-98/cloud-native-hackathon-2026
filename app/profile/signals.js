@@ -41,9 +41,14 @@ function pickFiles(tree, max = 4) {
   for (const list of Object.values(buckets)) list.sort((a, b) => depth(a) - depth(b) || a.localeCompare(b));
   const order = ['dep', 'manifest', 'chart', 'dep', 'manifest', 'kustomize', 'compose', 'workflow', 'manifest', 'dep'];
   const picked = [];
+  const dir = (p) => p.slice(0, p.lastIndexOf('/') + 1);
   for (const kind of order) {
     if (picked.length >= max) break;
-    const next = buckets[kind].shift();
+    // Prefer a manifest from a directory not read yet (argocd/ and deploy/
+    // say more together than two files from argocd/).
+    const list = buckets[kind];
+    const fresh = list.findIndex((p) => !picked.some((q) => dir(q) === dir(p)));
+    const next = list.splice(kind === 'manifest' && fresh > 0 ? fresh : 0, 1)[0];
     if (next) picked.push(next);
   }
   // Fill any space left with whatever remains.
@@ -228,7 +233,9 @@ const STOP = new Set(
   everything nothing someone everyone people person each other next last end ends live-reload ready status
   error errors fix fixes bug bugs log logs debug option options flag flags script scripts folder directory
   directories path paths url urls link-to output outputs mode modes state states check checks session sessions
-  minimal basic basics overview intro introduction summary details detail note notes section sections table`
+  minimal basic basics overview intro introduction summary details detail note notes section sections table
+  architecture instance instances binary binaries bundle bundles house home homepage per change changes inside
+  cluster clusters image images host hosts disk disks machine machines thing stuff misc various random`
     .split(/\s+/)
     .filter(Boolean),
 );
@@ -282,7 +289,7 @@ function terms(text, exclude, allowMeta = false) {
   return out;
 }
 
-// Level 1-2 Markdown headings (and the setext kind), outside code blocks.
+// A README's title: level-1 Markdown headings (atx or setext), outside code blocks.
 function readmeHeadings(text) {
   const body = String(text || '')
     .slice(0, 20000)
@@ -291,9 +298,9 @@ function readmeHeadings(text) {
   const out = [];
   const lines = body.split(/\r?\n/);
   lines.forEach((line, i) => {
-    const atx = /^\s{0,3}#{1,2}\s+(.+?)\s*#*\s*$/.exec(line);
+    const atx = /^\s{0,3}#\s+(.+?)\s*#*\s*$/.exec(line);
     if (atx) out.push(atx[1]);
-    else if (i > 0 && /^\s*(=+|-+)\s*$/.test(line) && lines[i - 1].trim() && !/^\s*[-*|]/.test(lines[i - 1])) {
+    else if (i > 0 && /^\s*=+\s*$/.test(line) && lines[i - 1].trim() && !/^\s*[-*|]/.test(lines[i - 1])) {
       out.push(lines[i - 1].trim());
     }
   });

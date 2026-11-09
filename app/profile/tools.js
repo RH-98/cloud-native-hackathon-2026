@@ -799,7 +799,7 @@ function countMentions(text) {
     let allShort = true;
     while (j < lines.length && LIST_ITEM.test(lines[j])) {
       hitsByLine[j].forEach((n) => names.add(n));
-      if (hitsByLine[j].length && lines[j].split(/\s+/).filter(Boolean).length > 8) allShort = false;
+      if (hitsByLine[j].length && lines[j].split(/\s+/).filter((w) => /[a-z]/.test(w)).length > 8) allShort = false;
       j++;
     }
     if (names.size >= LIST_TOOLS && allShort) for (let k = i; k < j; k++) skip[k] = true;
