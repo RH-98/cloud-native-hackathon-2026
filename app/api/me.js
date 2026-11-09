@@ -190,7 +190,8 @@ function createMeHandler(accounts) {
         }
         const derived = deriveSocialProfile(profile);
         // Typed interests keep unmatched phrases verbatim as keywords (could be names or
-        // employers): only GitHub's derived keywords and the LinkedIn parser's curated ones are kept.
+        // employers). For blended profiles they are mixed with GitHub's, so all keywords are
+        // dropped unless the profile is pure GitHub or a LinkedIn paste (curated keywords).
         if (profile.source !== 'github' && profile.pastedFrom !== 'linkedin') derived.keywords = [];
         const signals = derived.tools.length + derived.languages.length + derived.topics.length + derived.keywords.length;
         if (!profile.username && !signals) {
