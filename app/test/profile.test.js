@@ -276,6 +276,26 @@ test('github: skips optional API jobs beyond the anonymous budget without markin
   assert.equal(p.scan.partial, false);
 });
 
+test('github: user, repos, starred and events calls start together, before any answers', async () => {
+  const inner = fakeGithub();
+  const started = [];
+  let answered = 0;
+  const fetch = async (url, init) => {
+    started.push({ path: new URL(url).pathname, answeredBefore: answered });
+    await new Promise((r) => setTimeout(r, 5));
+    answered += 1;
+    return inner.fetch(url, init);
+  };
+  const p = await buildProfile({ github: 'octo-dev' }, deps({ fetch }));
+  assert.equal(p.username, 'octo-dev');
+  const first = ['/users/octo-dev', '/users/octo-dev/repos', '/users/octo-dev/starred', '/users/octo-dev/events/public'];
+  for (const path of first) {
+    const s = started.find((x) => x.path.toLowerCase() === path);
+    assert.ok(s, `${path} was called`);
+    assert.equal(s.answeredBefore, 0, `${path} started before any call answered`);
+  }
+});
+
 test('github: unknown user is not_found', async () => {
   const fake = fakeGithub({ user: 'someone-else' });
   await assert.rejects(buildProfile({ github: 'octo-dev' }, deps(fake)), (err) => {

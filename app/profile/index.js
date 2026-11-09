@@ -358,16 +358,27 @@ async function fromGithub(username, deps, span) {
     maxApiCalls,
   });
 
-  let user;
-  try {
-    user = await client.fetchUser(username);
-  } catch (err) {
-    if (err instanceof ProfileError && err.code === 'not_found') {
+  const state = { stop: false };
+  const guard = guarded(state);
+
+  // The user, repos, starred and events calls only need the username, so
+  // they run at once (found by Dash0 Agent0: run one after another they made
+  // a first plan take 2-6 s). User and repos are required: their errors are
+  // thrown, the user's first. Starred and events are optional (guarded): a
+  // rate limit there gives a partial profile.
+  const settled = await Promise.allSettled([
+    client.fetchUser(username),
+    client.fetchRepos(username),
+    guard(() => client.fetchStarred(username, MAX_STARRED)),
+    guard(() => client.fetchEvents(username)),
+  ]);
+  const [user, all, starredRaw, events] = settled.map((r, i) => {
+    if (r.status === 'fulfilled') return r.value;
+    if (i === 0 && r.reason instanceof ProfileError && r.reason.code === 'not_found') {
       throw new ProfileError('not_found', `No GitHub user named ${username}`);
     }
-    throw err;
-  }
-  const all = await client.fetchRepos(username);
+    throw r.reason;
+  });
   const login = user.login || username;
   const byPushed = (a, b) => String(b.pushed_at || '').localeCompare(String(a.pushed_at || ''));
   const mine = all.filter((r) => r && !r.private && typeof r.full_name === 'string');
@@ -381,23 +392,11 @@ async function fromGithub(username, deps, span) {
     .sort(byPushed)
     .slice(0, MAX_FORKS);
 
-  const state = { stop: false };
-  const guard = guarded(state);
-
-  // Interest signals first (two calls), then one tree per repo, then
-  // languages and contributed-to repos with whatever API budget is left.
-  const [starredRaw, events] = await Promise.all([
-    guard(() => client.fetchStarred(login, MAX_STARRED)),
-    guard(() => client.fetchEvents(login)),
-  ]);
   const starred = (starredRaw || []).filter((r) => r && typeof r.full_name === 'string' && !r.private);
 
   // Raw files don't count against the API rate limit; share that budget.
   const n = repos.length || 1;
   const filesPerRepo = Math.max(1, Math.min(5, Math.floor((maxCalls - maxApiCalls) / n)));
-  const scans = await mapLimit(repos, deps.concurrency || CONCURRENCY, (repo) =>
-    scanRepo(client, repo, guard, filesPerRepo),
-  );
 
   const contributed = contributedRepos(events, login, now, token ? MAX_CONTRIBUTIONS : MAX_CONTRIBUTIONS_ANON);
   const extra = [
@@ -410,10 +409,15 @@ async function fromGithub(username, deps, span) {
     count: c.count,
     last: c.last,
   }));
-  // Plan the optional calls against what is left of the budget, so a planned
-  // limit never trips BudgetExhausted and marks the profile partial.
-  const planned = extra.slice(0, client.apiCallsLeft);
-  await mapLimit(planned, deps.concurrency || CONCURRENCY, async (job) => {
+  // One tree per repo comes first in the budget; plan the optional calls
+  // against what is left after those, so a planned limit never trips
+  // BudgetExhausted and marks the profile partial. The trees and the
+  // optional calls then run side by side.
+  const planned = extra.slice(0, Math.max(0, client.apiCallsLeft - repos.length));
+  const scansDone = mapLimit(repos, deps.concurrency || CONCURRENCY, (repo) =>
+    scanRepo(client, repo, guard, filesPerRepo),
+  );
+  const extrasDone = mapLimit(planned, deps.concurrency || CONCURRENCY, async (job) => {
     if (job.type === 'languages') {
       const [owner, name] = job.repo.full_name.split('/');
       languageBytes[job.i] = await guard(() => client.fetchLanguages(owner, name));
@@ -424,6 +428,7 @@ async function fromGithub(username, deps, span) {
       if (repo && !repo.private && typeof repo.full_name === 'string') slot.repo = repo;
     }
   });
+  const [scans] = await Promise.all([scansDone, extrasDone]);
 
   const { tools, languages, topics, keywords } = aggregate({
     user, repos, scans, languageBytes, forks, starred, contributions, now, maxTools: deps.maxTools,
