@@ -75,6 +75,7 @@ function setLoading(on, message) {
   el.submit.textContent = on ? 'Mapping your route…' : 'Map my route';
   el.plan.setAttribute('aria-busy', on ? 'true' : 'false');
   for (const b of el.plan.querySelectorAll('[data-action="pin"], [data-action="skip"]')) b.disabled = on;
+  el.resetChoices.disabled = on;
   // Show the skeleton only when there is no plan on screen yet.
   el.skeleton.hidden = !on || !el.plan.hidden;
   if (on) {
@@ -214,11 +215,15 @@ function showPlan({ focusKey } = {}) {
   }
 }
 
+// Only the latest plan request may render, whatever order responses arrive in.
+let planRequestSeq = 0;
 async function loadPlan(body, { message, done, focusKey, fresh = false }) {
+  const mine = ++planRequestSeq;
   clearError();
   setLoading(true, message);
   try {
     const { profile, plan } = await requestPlan(planRequest(body, state.pinned, state.skipped));
+    if (mine !== planRequestSeq) return false;
     state.request = body;
     state.profile = profile;
     state.plan = applySwaps(plan, state.swaps);
@@ -233,6 +238,7 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
     loadPeople();
     return true;
   } catch (err) {
+    if (mine !== planRequestSeq) return false;
     setLoading(false);
     showError(err);
     if (el.plan.hidden && el.profile.hidden) el.empty.hidden = false;
