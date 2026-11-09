@@ -34,16 +34,30 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `TEAM_NAME` | `ryan-hilton-real` | Team name (not currently shown in the UI) |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
 | `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour) |
-| `NODE_OPTIONS` | `--require @opentelemetry/auto-instrumentations-node/register` | Loads OpenTelemetry auto-instrumentation |
+| `APP_VERSION` | Image build arg (the commit SHA) | Shown on the page, and sent as the `service.version` resource attribute so Dash0 can compare deploys |
+| `NODE_OPTIONS` | `--require ./telemetry.js` | Loads [`app/telemetry.js`](app/telemetry.js): OpenTelemetry auto-instrumentation, without spans for the `/healthz` and `/readyz` probes or file-system calls. Relative to the working directory (`/app` in the image, `app/` locally) |
 | `OTEL_SERVICE_NAME` | `conference-planner` | Service name in Dash0 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `https://ingress.us-west-2.aws.dash0.com` | Dash0 OTLP endpoint (us-west-2) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP over HTTP |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Secret `app-credentials` | Dash0 auth header |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Send traces and metrics; logs explicitly emitted through the OpenTelemetry Logs API are exported (plain `console.log` is not instrumented) |
-| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans |
+| `OTEL_NODE_DISABLED_INSTRUMENTATIONS` | `fs` | Skip noisy file-system spans (`telemetry.js` also turns them off) |
+| `OTEL_NODE_RESOURCE_DETECTORS` | `env,host,os,process,serviceinstance` | Skip the cloud metadata detectors (GCP, AWS, Azure): the nodes are shared host nodes. `telemetry.js` uses the same list when this is unset |
+| `OTEL_LOG_LEVEL` | Unset | Optional. Set to `debug`, `info`, `warn` or `error` to print the OpenTelemetry SDK's own diagnostics (`telemetry.js` reads it) |
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 
-To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`.
+To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`. To see spans locally, run `OTEL_TRACES_EXPORTER=console OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=none node --require ./telemetry.js server.js` in `app/`. With no `OTEL_EXPORTER_OTLP_*ENDPOINT` and no `OTEL_*_EXPORTER` set, `telemetry.js` leaves OpenTelemetry off, so local runs don't retry `localhost:4318`.
+
+### Hardening
+
+These settings answer Radar's Checks for `Deployment/app`:
+
+| Check | Fix | Why it's safe |
+|---|---|---|
+| `automountServiceAccountToken` | `automountServiceAccountToken: false` on the pod spec | The app never calls the Kubernetes API |
+| `readOnlyRootFs` | `readOnlyRootFilesystem: true`, plus a 64Mi `emptyDir` at `/tmp` | Nothing writes to disk at runtime: dependencies are installed at build time, and OpenTelemetry exports over the network |
+| `missingPDB` | [`deploy/pdb.yaml`](deploy/pdb.yaml), `minAvailable: 1` | Drains evict one of the 2 replicas at a time |
+| `missingTopologySpread` | `topologySpreadConstraints` on `kubernetes.io/hostname`, `whenUnsatisfiable: ScheduleAnyway` | Prefers spreading the replicas across nodes, but never blocks scheduling on the shared vcluster nodes |
 
 ## The app: Switchback
 
