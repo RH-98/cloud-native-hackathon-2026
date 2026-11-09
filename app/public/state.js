@@ -26,9 +26,45 @@ export function loadInputs(storage = globalThis.localStorage) {
   }
 }
 
+// The interests box also takes a pasted LinkedIn profile (up to 10,000 characters).
+export const MAX_INTERESTS = 10000;
+
+// Long or many-line text is a pasted profile: it is sent once to build the
+// plan and never kept (not in localStorage, not in a saved account plan).
+export function isPastedText(text) {
+  return typeof text === 'string' && (text.length > 500 || text.split('\n').length > 4);
+}
+
+// The derived signals as a short interests line, to keep in place of a paste.
+export function derivedInterests(profile) {
+  if (!profile) return '';
+  const words = [
+    ...(profile.tools || []).map((t) => t.label || t.name),
+    ...(profile.languages || []).map((l) => l.name),
+    ...(profile.topics || []),
+    ...(profile.keywords || []),
+  ].filter((w) => typeof w === 'string' && w);
+  let out = '';
+  for (const w of [...new Set(words)]) {
+    const next = out ? `${out}, ${w}` : w;
+    if (next.length > 500) break;
+    out = next;
+  }
+  return out;
+}
+
+// A request safe to persist: a pasted profile is replaced by what we derived from it.
+export function persistableRequest(request, profile) {
+  if (!request || !isPastedText(request.interests)) return request;
+  const interests = derivedInterests(profile);
+  const { interests: _dropped, ...rest } = request;
+  return interests ? { ...rest, interests } : rest;
+}
+
 export function saveInputs(inputs, storage = globalThis.localStorage) {
   try {
-    storage?.setItem(STORAGE_KEY, JSON.stringify(inputs));
+    const kept = isPastedText(inputs?.interests) ? { ...inputs, interests: '' } : inputs;
+    storage?.setItem(STORAGE_KEY, JSON.stringify(kept));
   } catch {
     // ignore: remembering inputs is a convenience
   }

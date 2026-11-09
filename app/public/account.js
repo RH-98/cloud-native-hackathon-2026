@@ -5,7 +5,7 @@
 // The DOM is only touched inside functions, so node:test can import the
 // pure helpers (snapshotState, applySnapshot, isOwnGithubProfile).
 import { h } from './render.js';
-import { state } from './state.js';
+import { persistableRequest, state } from './state.js';
 
 const SAVE_DELAY_MS = 800;
 const MAX_SAVE_CHARS = 450 * 1024; // the server takes up to 500 KB of state
@@ -24,7 +24,8 @@ let hooks = { conferenceId: () => null, restore: () => {} };
 // What the server stores for a plan: enough to put the page back as it was.
 export function snapshotState(s, { includePlan = true } = {}) {
   return {
-    request: s.request,
+    // A pasted LinkedIn profile is never stored: only what we derived from it.
+    request: persistableRequest(s.request, s.profile),
     pinned: [...s.pinned],
     skipped: [...s.skipped],
     swaps: [...s.swaps],
