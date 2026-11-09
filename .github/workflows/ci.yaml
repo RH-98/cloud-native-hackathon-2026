@@ -34,7 +34,7 @@ jobs:
       - name: Smoke test (health endpoints, with OpenTelemetry loaded)
         working-directory: app
         env:
-          NODE_OPTIONS: --require @opentelemetry/auto-instrumentations-node/register
+          NODE_OPTIONS: --require ./telemetry.js
           OTEL_TRACES_EXPORTER: none
           OTEL_METRICS_EXPORTER: none
           OTEL_LOGS_EXPORTER: none

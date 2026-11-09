@@ -1,0 +1,13 @@
+# Keep at least one app pod up during voluntary disruptions (node drains,
+# cluster upgrades). With 2 replicas, one pod can be evicted at a time.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: app
