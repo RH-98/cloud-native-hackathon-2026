@@ -16,6 +16,22 @@ spec:
       labels:
         app: app
     spec:
+      # The app never calls the Kubernetes API, so it needs no token.
+      automountServiceAccountToken: false
+      # Prefer different nodes for the replicas, but never block scheduling:
+      # the vcluster's nodes are shared host nodes.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: app
+      volumes:
+        # The root filesystem is read-only; this is the only writable path.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
       containers:
         - name: app
           image: app
@@ -41,7 +57,9 @@ spec:
             # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS
-              value: "--require @opentelemetry/auto-instrumentations-node/register"
+              # telemetry.js (in app/) wraps the auto-instrumentation: no spans
+              # for /healthz and /readyz, and service.version from APP_VERSION.
+              value: "--require ./telemetry.js"
             - name: OTEL_SERVICE_NAME
               value: "conference-planner"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -61,6 +79,10 @@ spec:
               value: "otlp"
             - name: OTEL_NODE_DISABLED_INSTRUMENTATIONS
               value: "fs"
+            # Skip the cloud metadata detectors (GCP, AWS, Azure...): the nodes
+            # are shared host nodes, and the probes slow start-up.
+            - name: OTEL_NODE_RESOURCE_DETECTORS
+              value: "env,host,os,process,serviceinstance"
             - name: K8S_POD_NAME
               valueFrom:
                 fieldRef:
@@ -89,7 +111,11 @@ spec:
               path: /healthz
               port: http
             periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           securityContext:
+            readOnlyRootFilesystem: true
             runAsNonRoot: true
             allowPrivilegeEscalation: false
             seccompProfile:
