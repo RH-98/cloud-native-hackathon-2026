@@ -9,7 +9,7 @@ const opts = { conferenceId: 'test-conf', utcOffset: '-07:00', pageUrl: 'https:/
 
 test('parseSchedule extracts sessions in the common format', () => {
   const sessions = parseSchedule(fixture('lf-schedule.html'), opts);
-  assert.equal(sessions.length, 3, 'duplicate session ids are merged');
+  assert.equal(sessions.length, 4, 'duplicate session ids are merged');
 
   const talk = sessions.find((s) => s.sourceId === '101');
   assert.deepEqual(talk, {
@@ -42,6 +42,11 @@ test('parseSchedule flags sponsored demos and logistics entries', () => {
   const coffee = sessions.find((s) => s.sourceId === '103');
   assert.equal(coffee.kind, 'logistics');
   assert.deepEqual(coffee.speakers, []);
+
+  const registration = sessions.find((s) => s.sourceId === '104');
+  assert.equal(registration.kind, 'logistics');
+  assert.equal(registration.description, 'Questions? Contact test@example.org.');
+
 });
 
 test('parseSponsors extracts names, tiers and urls, keeping the first tier for duplicates', () => {

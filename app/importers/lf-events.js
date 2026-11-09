@@ -8,6 +8,13 @@ const LEVELS = new Set(['Beginner', 'Intermediate', 'Advanced', 'Any Level']);
 
 const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
+const decodeCfEmail = (hex) => {
+  const key = parseInt(hex.slice(0, 2), 16);
+  let out = '';
+  for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+  return out;
+};
+
 // The schedule page gives local times without an offset ("2026-11-10T11:30:00").
 // Attach the conference's UTC offset so every timestamp is unambiguous.
 function withOffset(localDateTime, utcOffset) {
@@ -54,6 +61,9 @@ function parseSchedule(html, { conferenceId, utcOffset, pageUrl }) {
       .filter(Boolean);
     // Separate paragraphs and list items with a space so words don't run together.
     const $desc = $wrap.find('.sess__seodesc');
+    $desc.find('[data-cfemail]').each((__, el) => {
+      $(el).replaceWith(decodeCfEmail($(el).attr('data-cfemail')));
+    });
     $desc.find('p, li, br').each((__, el) => {
       $(el).append(' ');
     });
@@ -73,8 +83,8 @@ function parseSchedule(html, { conferenceId, utcOffset, pageUrl }) {
       level: tags.find((t) => LEVELS.has(t)) || null,
       tags,
       sponsored: tags.includes('Sponsored'),
-      // Coat check, registration, meals: no speakers, description or tags.
-      kind: speakers.length || description || tags.length ? 'session' : 'logistics',
+      // Coat check, registration, meals: no speakers and no tags (some carry an info description).
+      kind: speakers.length || tags.length ? 'session' : 'logistics',
       slidesAvailable,
       url: $link.attr('href') || `${pageUrl}?id=${sourceId}`,
     });
