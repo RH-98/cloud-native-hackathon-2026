@@ -322,6 +322,7 @@ export async function initAccount(opts) {
   }
   renderHeader();
   renderFormStart();
+  $('#github')?.addEventListener('input', () => { if (account.user) renderFormStart(); });
   if (!account.user) {
     takePending(); // signed out: drop anything left over
     return;
@@ -331,6 +332,7 @@ export async function initAccount(opts) {
   const pending = takePending();
   if (pending && applySnapshot(state, pending)) {
     hooks.restore();
+    renderFormStart();
     await loadSocial();
     notifyPlanChanged();
     return;
@@ -343,6 +345,7 @@ export async function initAccount(opts) {
     if (state.plan || !applySnapshot(state, saved)) return; // never overwrite a plan the user already made
     await loadSocial();
     hooks.restore();
+    renderFormStart();
     renderSaveBox();
     syncSignedInHint();
     if (savedAt) {
