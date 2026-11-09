@@ -98,6 +98,7 @@ function createRequestRoutes({ db, requireUser, requireSameOrigin }) {
   async function view(r, user, cache) {
     const ctx = await contextFor(user, r.conferenceId, cache);
     const outgoing = r.fromUserId === String(user.id);
+    // A decline stays "pending" for the sender, timestamp included.
     const hideDecline = outgoing && r.status === 'declined';
     let person;
     let shared = [];
