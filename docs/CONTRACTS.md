@@ -15,13 +15,14 @@ browser ──POST /api/plan──▶ server.js ──▶ profile.buildProfile()
 const { buildProfile } = require('./profile');
 const profile = await buildProfile({ github: 'octocat' });            // from public repos
 const profile = await buildProfile({ interests: 'argo cd, otel, rust' }); // typed fallback
+const profile = await buildProfile({ github: 'octocat', interests: 'rust, chess' }); // both: blended
 ```
 
 Throws `ProfileError` (`err.code`: `not_found`, `rate_limited`, `upstream`, `invalid_input`). The GitHub token comes from `process.env.GITHUB_TOKEN` (Secret `app-credentials`, key `github-token`); without it, calls are unauthenticated (60 requests/hour).
 
 ```jsonc
 {
-  "source": "github",                 // github | interests
+  "source": "github",                 // github | interests | github+interests
   "username": "octocat",              // null for interests
   "displayName": "The Octocat",
   "avatarUrl": "https://…",           // null for interests
@@ -40,7 +41,7 @@ Throws `ProfileError` (`err.code`: `not_found`, `rate_limited`, `upstream`, `inv
 
 Only derived signals are kept. Never store or return code, file contents or the token.
 
-From `interests` (max 500 characters), phrases matching a catalog alias become tools (`"argo"` → `argo-cd`, `"otel"` → `opentelemetry`, `"k8s"` → `kubernetes`) with weight 1 and empty `evidence`; other phrases become `keywords`, and language names (`rust`, `golang`…) also fill `languages`. GitHub profiles are cached in memory for 15 minutes per username. If GitHub rate-limits part-way through, the profile is built from what was already fetched (repo languages, topics, descriptions) rather than failing.
+From `interests` (max 500 characters), phrases matching a catalog alias become tools (`"argo"` → `argo-cd`, `"otel"` → `opentelemetry`, `"k8s"` → `kubernetes`) with weight 1 and empty `evidence`; other phrases become `keywords`, and language names (`rust`, `golang`…) also fill `languages`. With both `github` and `interests`, the GitHub profile is built and the interests are blended in (`mergeInterests(profile, interestsProfile)`): typed tools and languages are added, or raised to weight `max(existing, 0.9)`, with empty `evidence`; unmatched phrases go first in `keywords` (deduped, at most 15); `source` is `github+interests`. GitHub profiles are cached in memory for 15 minutes per username. If GitHub rate-limits part-way through, the profile is built from what was already fetched (repo languages, topics, descriptions) rather than failing.
 
 ## Search and plan (`app/planner/index.js`)
 
@@ -101,7 +102,7 @@ Plan:
 |---|---|---|
 | `GET /healthz`, `GET /readyz` | | `ok` (keep these) |
 | `GET /api/conferences` | | `{ "conferences": [{ id, name, location, timezone, startDate, endDate, sessionCount }] }` |
-| `POST /api/plan` | `{ "conferenceId", "github"?: "user", "interests"?: "text", "options"?: {…} }` (one of `github` / `interests`) | `{ "profile": Profile, "plan": Plan }` |
+| `POST /api/plan` | `{ "conferenceId", "github"?: "user", "interests"?: "text", "options"?: {…} }` (at least one of `github` / `interests`; both blends them) | `{ "profile": Profile, "plan": Plan, "warnings"?: [code] }`. With both inputs, if GitHub answers `rate_limited`, `not_found` or `upstream`, the plan is built from the interests alone (`profile.source` is `interests`) and `warnings` holds `github_rate_limited`, `github_not_found` or `github_unavailable`. `warnings` is left out when empty |
 | `POST /api/connections` | `{ "conferenceId", "profile": Profile, "pickedSessionIds"?: [id], "limit"?: 1-20, "firstTimer"?: bool }` | `{ "connections": [{ "attendee": { displayName, handle, role, bio }, "score", "shared": [label], "why", "commonSessions": [{ id, title, start }] }], "searchBackend", "demoData": true }`. Opted-in (fictional demo) attendees only; 404 when the conference has none |
 | `GET /api/changes` | query `conferenceId` (required), `since` (ISO 8601 date-time with a zone; only changes detected after it), `sessionIds` (comma-separated, max 200, all of this conference) | `{ "changes": [Change], "checkedAt": "…" \| null }`, newest first, at most 200 |
 | `GET /` and static files | | the UI from `app/public/` |

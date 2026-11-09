@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildProfile, ProfileError, TtlCache } = require('../profile');
+const { buildProfile, mergeInterests, ProfileError, TtlCache } = require('../profile');
 const { detectTools, matchInterests, CATALOG } = require('../profile/tools');
 const signals = require('../profile/signals');
 
@@ -299,4 +299,74 @@ test('TtlCache evicts the oldest entry beyond its max size', () => {
   assert.equal(c.get('a', 1), undefined);
   assert.equal(c.get('c', 1), 3);
   assert.equal(c.get('c', 2000), undefined);
+});
+
+// ------------------------------------------------------- github + interests
+
+test('mergeInterests adds or boosts typed tools and languages, keywords first, without changing inputs', () => {
+  const github = {
+    source: 'github', username: 'octo', displayName: 'Octo', avatarUrl: null, repoCount: 2,
+    languages: [{ name: 'Go', weight: 0.7 }, { name: 'Rust', weight: 0.3 }],
+    tools: [
+      { name: 'kubernetes', label: 'Kubernetes', weight: 1, evidence: ['octo/a'] },
+      { name: 'argo-cd', label: 'Argo CD', weight: 0.4, evidence: ['octo/b'] },
+    ],
+    topics: ['gitops'],
+    keywords: ['progressive delivery', 'chess'],
+    generatedAt: '2026-11-09T21:00:00.000Z',
+  };
+  const typed = {
+    source: 'interests', languages: [{ name: 'Rust', weight: 1 }, { name: 'Zig', weight: 1 }],
+    tools: [{ name: 'argo-cd', label: 'Argo CD', weight: 1, evidence: [] }, { name: 'opentelemetry', label: 'OpenTelemetry', weight: 1, evidence: [] }],
+    topics: [], keywords: ['chess', 'sailing'],
+  };
+  const before = structuredClone(github);
+  const m = mergeInterests(github, typed);
+  assert.deepEqual(github, before, 'github profile unchanged');
+  assert.equal(m.source, 'github+interests');
+  assert.equal(m.username, 'octo');
+  assert.deepEqual(m.tools.map((t) => [t.name, t.weight]), [['kubernetes', 1], ['argo-cd', 0.9], ['opentelemetry', 0.9]]);
+  assert.deepEqual(m.tools.find((t) => t.name === 'argo-cd').evidence, ['octo/b'], 'boosted tool keeps its repos');
+  assert.deepEqual(m.tools.find((t) => t.name === 'opentelemetry').evidence, []);
+  assert.deepEqual(m.languages.map((l) => [l.name, l.weight]), [['Rust', 0.9], ['Zig', 0.9], ['Go', 0.7]]);
+  assert.deepEqual(m.keywords, ['chess', 'sailing', 'progressive delivery']);
+  assert.deepEqual(m.topics, ['gitops']);
+
+  const many = mergeInterests(
+    { ...github, tools: [], keywords: Array.from({ length: 15 }, (_, i) => `kw${i}`) },
+    { ...typed, keywords: ['typed one'] },
+  );
+  assert.equal(many.keywords.length, 15);
+  assert.equal(many.keywords[0], 'typed one');
+});
+
+test('github + interests: builds the GitHub profile and blends the interests in', async () => {
+  const fake = fakeGithub();
+  const p = await buildProfile({ github: 'octo-dev', interests: 'wasm, sailing' }, deps(fake));
+  assert.equal(p.source, 'github+interests');
+  assert.equal(p.username, 'octo-dev');
+  assert.equal(p.repoCount, 3);
+  const wasm = tool(p, 'wasm');
+  assert.ok(wasm && wasm.weight >= 0.9, JSON.stringify(wasm));
+  assert.equal(p.keywords[0], 'sailing');
+  assert.ok(p.tools.length <= 15);
+});
+
+test('github + interests: ignores interests that contain no phrases', async () => {
+  const fake = fakeGithub();
+  const p = await buildProfile({ github: 'octo-dev', interests: ',;|' }, deps(fake));
+  assert.equal(p.source, 'github');
+  assert.equal(p.username, 'octo-dev');
+  assert.equal(p.repoCount, 3);
+
+  await assert.rejects(buildProfile({ interests: ',;|' }), { code: 'invalid_input' });
+});
+
+test('github + interests: a GitHub error is thrown for the caller to fall back on', async () => {
+  const fake = fakeGithub({ rateLimitApiAfter: 0 });
+  await assert.rejects(buildProfile({ github: 'octo-dev', interests: 'rust' }, deps(fake)), { code: 'rate_limited' });
+  await assert.rejects(
+    buildProfile({ github: 'octo-dev', interests: 'x'.repeat(501) }, deps(fakeGithub(), { fetch: () => assert.fail('no call') })),
+    { code: 'invalid_input' },
+  );
 });

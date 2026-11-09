@@ -96,3 +96,28 @@ test('metric attributes only ever take values from fixed sets', async () => {
     metrics._reset();
   }
 });
+
+test('the GitHub client feeds github.ratelimit.remaining from api.github.com responses only', async () => {
+  const { createClient } = require('../profile/github');
+  metrics._reset();
+  otelMetrics.disable();
+  const fake = fakeProvider();
+  otelMetrics.setGlobalMeterProvider(fake.provider);
+  try {
+    const fetch = async (url) => {
+      const api = url.startsWith('https://api.github.com/');
+      return new Response(api ? '{"login":"octo-dev"}' : 'readme text', {
+        status: 200,
+        headers: { 'x-ratelimit-remaining': api ? '4321' : '7' },
+      });
+    };
+    const client = createClient({ fetch, token: '' });
+    await client.fetchUser('octo-dev');
+    assert.deepEqual(fake.observe(), [{ name: 'github.ratelimit.remaining', value: 4321, attributes: {} }]);
+    await client.fetchFile('octo-dev', 'repo', 'main', 'README.md');
+    assert.deepEqual(fake.observe(), [{ name: 'github.ratelimit.remaining', value: 4321, attributes: {} }]);
+  } finally {
+    otelMetrics.disable();
+    metrics._reset();
+  }
+});

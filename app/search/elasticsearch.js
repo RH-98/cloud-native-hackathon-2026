@@ -207,8 +207,7 @@ async function loadSnapshot(client, snapshot, { batchSize = 50 } = {}) {
 const SEARCH_TRANSPORT = { requestTimeout: 10_000, maxRetries: 1 };
 const RRF_RANK_CONSTANT = 60;
 const LEXICAL_FIELDS = ['title^3', 'description', 'tags^2', 'track'];
-// How much the profile-term match and the fused rank each count in a hit's score.
-const BLEND = { lexical: 0.5, rank: 0.5 };
+// How the term match and the fused rank combine into a hit's score: terms.sessionScore.
 
 function searchAvailable(env = process.env) {
   return Boolean(env.ELASTICSEARCH_URL && env.ELASTICSEARCH_API_KEY);
@@ -309,10 +308,9 @@ function toRecommendations(hits, profileTerms, { rankConstant = RRF_RANK_CONSTAN
       const { semantic, ...session } = hit._source || {};
       const matches = terms.sessionMatches(session, profileTerms);
       const rank = Math.min(1, (hit._score || 0) / best);
-      const score = BLEND.lexical * terms.lexicalScore(matches) + BLEND.rank * rank;
       return {
         session,
-        score: Math.round(score * 1000) / 1000,
+        score: terms.sessionScore(session, matches, rank),
         reasons: terms.sessionReasons(session, matches, { semantic: true }),
       };
     })

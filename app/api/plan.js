@@ -71,12 +71,13 @@ function validatePlanRequest(body) {
   }
   const hasGithub = github !== undefined && github !== null && github !== '';
   const hasInterests = interests !== undefined && interests !== null && interests !== '';
-  if (hasGithub === hasInterests) throw bad('Give exactly one of a GitHub username or your interests');
+  if (!hasGithub && !hasInterests) throw bad('Give a GitHub username, your interests, or both');
   const out = { conferenceId, options: validateOptions(options) };
   if (hasGithub) {
     if (typeof github !== 'string' || !GITHUB_USER.test(github)) throw bad('That is not a valid GitHub username');
     out.github = github;
-  } else {
+  }
+  if (hasInterests) {
     if (typeof interests !== 'string') throw bad('interests must be text');
     const text = interests.trim();
     if (!text) throw bad('Tell us at least one interest');
@@ -95,6 +96,38 @@ function publicMessage(err) {
   return err.message || 'Something was wrong with the request';
 }
 
+// With both inputs, these GitHub failures fall back to the typed interests;
+// the response then carries the warning so the UI can say why.
+const GITHUB_FALLBACK = { rate_limited: 'github_rate_limited', not_found: 'github_not_found', upstream: 'github_unavailable' };
+
+function planSource(input) {
+  if (input.github && input.interests) return 'github+interests';
+  return input.github ? 'github' : 'interests';
+}
+
+// Builds the profile, falling back to the interests alone when GitHub fails
+// and the user typed some. Returns { profile, warnings }.
+async function profileFor(input, buildProfile, span) {
+  if (!input.github) return { profile: await buildProfile({ interests: input.interests }), warnings: [] };
+  if (!input.interests) return { profile: await buildProfile({ github: input.github }), warnings: [] };
+  try {
+    return { profile: await buildProfile({ github: input.github, interests: input.interests }), warnings: [] };
+  } catch (err) {
+    const warning = err && Object.hasOwn(GITHUB_FALLBACK, err.code) ? GITHUB_FALLBACK[err.code] : null;
+    if (!warning) throw err;
+    let profile;
+    try {
+      profile = await buildProfile({ interests: input.interests });
+    } catch (fallbackErr) {
+      // Interests with nothing usable in them: GitHub's error says more.
+      if (fallbackErr && fallbackErr.code === 'invalid_input') throw err;
+      throw fallbackErr;
+    }
+    span?.setAttribute('plan.fallback', warning);
+    return { profile, warnings: [warning] };
+  }
+}
+
 // deps: { buildProfile, buildPlan, hasConference } so tests can inject fakes.
 function createPlanHandler(deps) {
   return async function handlePlan(req, res) {
@@ -103,15 +136,15 @@ function createPlanHandler(deps) {
       const body = await readJsonBody(req);
       const input = validatePlanRequest(body);
       span?.setAttributes({
-        'plan.source': input.github ? 'github' : 'interests',
+        'plan.source': planSource(input),
         'conference.id': input.conferenceId,
       });
       if (deps.hasConference && !deps.hasConference(input.conferenceId)) {
         throw new HttpError('not_found', `No conference named ${input.conferenceId}`);
       }
-      const profile = await deps.buildProfile(input.github ? { github: input.github } : { interests: input.interests });
+      const { profile, warnings } = await profileFor(input, deps.buildProfile, span);
       const plan = await deps.buildPlan({ conferenceId: input.conferenceId, profile, options: input.options });
-      sendJson(res, 200, { profile, plan });
+      sendJson(res, 200, warnings.length ? { profile, plan, warnings } : { profile, plan });
     } catch (err) {
       if (err instanceof HttpError) {
         span?.setAttribute('plan.error_code', err.code);
