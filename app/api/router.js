@@ -3,10 +3,13 @@
 const { send, sendError } = require('./http');
 const { handleConferences, hasConference } = require('./conferences');
 const { createPlanHandler } = require('./plan');
+const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
 
-function createHandler({ buildProfile, buildPlan, publicDir } = {}) {
+// connections: optional deps for handleConnections (tests pass a fake search or env).
+function createHandler({ buildProfile, buildPlan, publicDir, connections } = {}) {
   const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
+  const handleConnections = createConnectionsHandler(connections);
   const handleStatic = createStaticHandler(publicDir);
 
   return function handler(req, res) {
@@ -29,6 +32,12 @@ function createHandler({ buildProfile, buildPlan, publicDir } = {}) {
     if (p === '/api/plan') {
       if (req.method !== 'POST') return sendError(res, 'method_not_allowed', 'Use POST', { allow: 'POST' });
       return handlePlan(req, res).catch(() => {
+        if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
+      });
+    }
+    if (p === '/api/connections') {
+      if (req.method !== 'POST') return sendError(res, 'method_not_allowed', 'Use POST', { allow: 'POST' });
+      return handleConnections(req, res).catch(() => {
         if (!res.headersSent) sendError(res, 'internal', 'Something went wrong on our side');
       });
     }

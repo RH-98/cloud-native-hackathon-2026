@@ -1,0 +1,71 @@
+# One-off Job: load the FICTIONAL demo attendees (app/data/attendees/) into
+# Elasticsearch (index conference-attendees) for suggested connections. Not in
+# deploy/, so Argo CD doesn't own it. Create it through Radar (apply_resource,
+# mode=create) or kubectl, with a new name each run:
+#   kubectl create -f jobs/load-attendees.yaml
+# Safe to repeat: documents are overwritten by id. Needs the app-credentials
+# Secret (elasticsearch-api-key) and an image that contains the attendees.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: load-attendees-
+  namespace: team-ryan-hilton-real
+  labels:
+    app: load-attendees
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: load-attendees
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: loader
+          image: ghcr.io/rh-98/cloud-native-hackathon-2026:latest
+          imagePullPolicy: Always
+          command: ["node", "scripts/load-attendees.js"]
+          env:
+            - name: ELASTICSEARCH_URL
+              value: "https://my-vectordb-project-ebb49c.es.us-east4.gcp.elastic.cloud:443"
+            - name: ELASTICSEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: elasticsearch-api-key
+            # Trace the load in Dash0 too.
+            - name: NODE_OPTIONS
+              value: "--require ./telemetry.js"
+            - name: OTEL_SERVICE_NAME
+              value: "conference-loader"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "https://ingress.us-west-2.aws.dash0.com"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: otel-exporter-otlp-headers
+            - name: OTEL_METRICS_EXPORTER
+              value: "none"
+            - name: OTEL_NODE_DISABLED_INSTRUMENTATIONS
+              value: "fs"
+            - name: OTEL_NODE_RESOURCE_DETECTORS
+              value: "env,host,os,process,serviceinstance"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
