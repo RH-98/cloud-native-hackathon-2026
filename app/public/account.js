@@ -61,6 +61,11 @@ export function prefillGithub(current, login) {
   return typeof login === 'string' ? login : '';
 }
 
+export function isSameLogin(value, login) {
+  return typeof value === 'string' && typeof login === 'string'
+    && value.trim().replace(/^@/, '').toLowerCase() === login.toLowerCase();
+}
+
 // ---------- API ----------
 
 async function api(path, { method = 'GET', body } = {}) {
@@ -166,19 +171,29 @@ function renderFormStart() {
   start.hidden = true;
   const login = account.user.login;
   input.value = prefillGithub(input.value, login);
-  const children = ['Signed in as ', h('strong', {}, `@${login}`), '. Change the username to plan for someone else.'];
-  if (input.value.replace(/^@/, '').toLowerCase() !== String(login).toLowerCase()) {
-    const use = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, `Use @${login}`);
-    use.addEventListener('click', () => {
-      input.value = login;
-      renderFormStart();
-      input.focus();
-    });
-    children.push(' ', use);
-  }
-  signed.replaceChildren(...children);
+  // "Use @login" shows whenever the field holds another username; it is kept
+  // in sync as the user types and after a saved plan is restored.
+  const use = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, `Use @${login}`);
+  use.addEventListener('click', () => {
+    input.value = login;
+    syncSignedInHint();
+    input.focus();
+  });
+  signed.replaceChildren('Signed in as ', h('strong', {}, `@${login}`), '. Change the username to plan for someone else. ', use);
   signed.hidden = false;
   input.setAttribute('aria-describedby', [...describedBy(), 'github-signed-in'].join(' '));
+  if (!input.dataset.signedInSync) {
+    input.dataset.signedInSync = '1';
+    input.addEventListener('input', syncSignedInHint);
+  }
+  syncSignedInHint();
+}
+
+function syncSignedInHint() {
+  const use = $('#github-signed-in button');
+  const input = $('#github');
+  if (!use || !input || !account.user) return;
+  use.hidden = isSameLogin(input.value, account.user.login);
 }
 
 function setSaveStatus(text) {
@@ -253,6 +268,7 @@ async function saveNow() {
 // app.js calls this after every generate, swap, pin, skip or reset.
 export function notifyPlanChanged() {
   renderSaveBox();
+  syncSignedInHint(); // a restored plan may have put another username in the field
   if (!account.user) return;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(saveNow, SAVE_DELAY_MS);
@@ -328,6 +344,7 @@ export async function initAccount(opts) {
     await loadSocial();
     hooks.restore();
     renderSaveBox();
+    syncSignedInHint();
     if (savedAt) {
       const when = new Date(savedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       setSaveStatus(`Restored your saved plan (saved ${when}).`);
