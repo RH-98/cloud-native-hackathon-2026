@@ -67,6 +67,23 @@ test('static files block traversal, hidden files and unknown types', async (t) =
   assert.equal(resolveStatic('/../server.js'), null);
   assert.equal(resolveStatic('/a\0.html'), null);
   assert.equal(resolveStatic('/'), `${PUBLIC_DIR}/index.html`);
+  assert.equal(resolveStatic('/account'), `${PUBLIC_DIR}/account.html`);
+  assert.equal(resolveStatic('/account/'), null); // exact match only
+  assert.equal(resolveStatic('/account/../server.js'), null);
+});
+
+test('GET /account serves the account page with the CSP and no inline scripts', async (t) => {
+  const app = await start();
+  t.after(app.close);
+  const res = await fetch(`${app.base}/account`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/html/);
+  assert.match(res.headers.get('content-security-policy'), /script-src 'self'/);
+  const html = await res.text();
+  assert.match(html, /<script type="module" src="\/account-page.js"><\/script>/);
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/); // every script is external
+  assert.doesNotMatch(html, /\son[a-z]+=|style="/); // no inline handlers or styles
+  assert.equal((await fetch(`${app.base}/account-page.js`)).status, 200);
 });
 
 test('GET /api/conferences lists the snapshot', async (t) => {
@@ -102,7 +119,7 @@ test('POST /api/plan validates input', async (t) => {
     { conferenceId: 'Bad Id!', github: 'octocat' },
     { conferenceId: 'kubecon-na-2026', github: '-octocat' },
     { conferenceId: 'kubecon-na-2026', github: 'a'.repeat(40) },
-    { conferenceId: 'kubecon-na-2026', interests: 'x'.repeat(501) },
+    { conferenceId: 'kubecon-na-2026', interests: 'x'.repeat(10001) }, // over the pasted-profile limit
     { conferenceId: 'kubecon-na-2026', interests: '   ' },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: [] },
     { conferenceId: 'kubecon-na-2026', github: 'octocat', options: { days: ['tomorrow'] } },
@@ -123,7 +140,7 @@ test('POST /api/plan validates input', async (t) => {
   assert.equal(notJson.status, 400);
   const wrongType = await postPlan(app.base, '{}', { 'content-type': 'text/plain' });
   assert.equal(wrongType.status, 415);
-  const tooBig = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', interests: 'x', pad: 'y'.repeat(17 * 1024) });
+  const tooBig = await postPlan(app.base, { conferenceId: 'kubecon-na-2026', interests: 'x', pad: 'y'.repeat(33 * 1024) });
   assert.equal(tooBig.status, 413);
   const get = await fetch(`${app.base}/api/plan`);
   assert.equal(get.status, 405);

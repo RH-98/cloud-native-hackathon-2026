@@ -1,13 +1,13 @@
 // Wires the page together: the form, loading and error states, plan actions
 // (swap, pin, skip, day tabs) and the exports. Rendering lives in render.js,
 // API calls in api.js, state and swaps in state.js, exports in ics.js.
-import { initAccount, notifyPlanChanged } from './account.js';
+import { initAccount, loadSavedFor, notifyPlanChanged } from './account.js';
 import { ApiError, fetchConferences, requestConnections, requestPlan } from './api.js';
 import { buildIcs, planToText } from './ics.js';
 import { createChangeWatch } from './changes.js';
 import { dateRange, formatDay } from './format.js';
 import { h, planMeta, renderConferenceCards, renderConnections, renderPlan, renderProfile } from './render.js';
-import { applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
+import { MAX_INTERESTS, applySwaps, countPicks, loadInputs, planRequest, saveInputs, slotKey, state, swapSlot, warningMessages } from './state.js';
 
 const GITHUB_USER = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DEFAULT_CONFERENCE = 'kubecon-na-2026';
@@ -97,7 +97,7 @@ function setLoading(on, message) {
 // ---------- Form ----------
 
 function updateCount() {
-  el.interestsCount.textContent = `${el.interests.value.length} of 500 characters`;
+  el.interestsCount.textContent = `${el.interests.value.length.toLocaleString('en-US')} of 10,000 characters`;
 }
 
 function selectedConference() {
@@ -138,7 +138,7 @@ function restoreInputs(saved) {
   // Inputs saved before both fields could be used together carry a `source`:
   // restore only the field that was in use then.
   if (typeof saved.github === 'string' && saved.source !== 'interests') el.github.value = saved.github;
-  if (typeof saved.interests === 'string' && saved.source !== 'github') el.interests.value = saved.interests.slice(0, 500);
+  if (typeof saved.interests === 'string' && saved.source !== 'github') el.interests.value = saved.interests.slice(0, MAX_INTERESTS);
   for (const box of el.form.querySelectorAll('input[name="levels"]')) box.checked = (saved.levels || []).includes(box.value);
   el.firstTimer.checked = Boolean(saved.firstTimer);
   el.includeSponsored.checked = saved.includeSponsored !== false;
@@ -419,7 +419,10 @@ async function init() {
   restoreInputs(saved);
 
   el.form.addEventListener('change', (e) => {
-    if (e.target.name === 'conference') renderDays(e.target.value);
+    if (e.target.name !== 'conference') return;
+    renderDays(e.target.value);
+    // Signed in: show that conference's saved plan, if any (account.js).
+    loadSavedFor(e.target.value);
   });
   el.interests.addEventListener('input', updateCount);
   el.form.addEventListener('submit', async (e) => {
@@ -469,7 +472,9 @@ async function init() {
   }
   if (state.conferences.length) {
     const has = (id) => state.conferences.some((c) => c.id === id);
-    const want = [saved?.conferenceId, selectedConference(), DEFAULT_CONFERENCE].find(has) || state.conferences[0].id;
+    // ?conference=<id> (the account page's "Open plan") wins over the last-used one.
+    const linked = new URLSearchParams(window.location.search).get('conference');
+    const want = [linked, saved?.conferenceId, selectedConference(), DEFAULT_CONFERENCE].find(has) || state.conferences[0].id;
     renderConferenceCards(el.conferenceList, state.conferences, want);
   }
   const conferenceId = selectedConference();
@@ -491,7 +496,7 @@ function regenerateForUser(login, done) {
 function restoreSaved() {
   const req = state.request;
   el.github.value = typeof req.github === 'string' ? req.github : '';
-  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, 500) : '';
+  el.interests.value = typeof req.interests === 'string' ? req.interests.slice(0, MAX_INTERESTS) : '';
   updateCount();
   const card = [...el.conferenceList.querySelectorAll('input[name="conference"]')].find((i) => i.value === req.conferenceId);
   if (card && !card.checked) {
@@ -502,10 +507,8 @@ function restoreSaved() {
     loadPlan(req, { message: 'Loading your saved plan…', done: 'Your saved plan is back.', fresh: true });
     return;
   }
-  if (state.profile) {
-    renderProfile(el.profile, state.profile);
-    el.profile.hidden = false;
-  }
+  if (state.profile) renderProfile(el.profile, state.profile);
+  el.profile.hidden = !state.profile;
   showPlan();
   announce('Your saved plan is back.');
   loadPeople();

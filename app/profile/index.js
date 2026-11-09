@@ -5,6 +5,8 @@ const { createClient, ProfileError, BudgetExhausted, withSpan } = require('./git
 const { detectEvidence, detectInterest, matchInterests, label } = require('./tools');
 const { pickFiles, findReadme, parseFile, extractKeywords, readmeHeadings, stripMarkdown } = require('./signals');
 const { ToolScores, blendLanguages, recencyDecay, dedupeKeywords } = require('./score');
+const { languageOf } = require('./languages');
+const { parseLinkedIn, looksLikeLinkedIn, MAX_PASTE } = require('./linkedin');
 
 const MAX_REPOS = 8;
 const MAX_CALLS = 60; // every request, raw files included
@@ -86,26 +88,46 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-const LANGUAGES = {
-  go: 'Go', golang: 'Go', rust: 'Rust', python: 'Python', py: 'Python', java: 'Java', typescript: 'TypeScript',
-  ts: 'TypeScript', javascript: 'JavaScript', js: 'JavaScript', node: 'JavaScript', nodejs: 'JavaScript', c: 'C',
-  'c++': 'C++', cpp: 'C++', 'c#': 'C#', csharp: 'C#', dotnet: 'C#', ruby: 'Ruby', kotlin: 'Kotlin', swift: 'Swift',
-  scala: 'Scala', elixir: 'Elixir', haskell: 'Haskell', php: 'PHP', shell: 'Shell', bash: 'Shell', zig: 'Zig',
-  lua: 'Lua', dart: 'Dart', clojure: 'Clojure', ocaml: 'OCaml', erlang: 'Erlang', julia: 'Julia',
-};
-
 // ------------------------------------------------------------ interests
+
+// Long text, or text with LinkedIn's section headers and counters, is a
+// pasted profile; a short list is typed interests.
+function isPastedProfile(interests) {
+  return typeof interests === 'string' && (interests.length > MAX_INTERESTS || looksLikeLinkedIn(interests));
+}
+
+// A pasted LinkedIn profile: only the derived signals are kept, never the text.
+function fromPastedProfile(text, now) {
+  if (text.length > MAX_PASTE) {
+    throw new ProfileError('invalid_input', `Keep pasted profiles under ${MAX_PASTE.toLocaleString('en-US')} characters`);
+  }
+  const { tools, languages, topics, keywords } = parseLinkedIn(text);
+  if (!tools.length && !languages.length && !topics.length && !keywords.length) {
+    throw new ProfileError('invalid_input', 'We could not find any skills or topics in that text. Try the headline, About and Skills sections.');
+  }
+  return {
+    source: 'interests',
+    pastedFrom: 'linkedin',
+    username: null,
+    displayName: 'You',
+    avatarUrl: null,
+    repoCount: 0,
+    languages,
+    tools: tools.map((t) => ({ name: t.name, label: label(t.name), weight: t.weight, evidence: [] })),
+    topics,
+    keywords,
+    generatedAt: new Date(now).toISOString(),
+  };
+}
 
 function fromInterests(interests, now) {
   if (typeof interests !== 'string') throw new ProfileError('invalid_input', 'Interests must be text');
-  if (interests.length > MAX_INTERESTS) {
-    throw new ProfileError('invalid_input', `Keep interests under ${MAX_INTERESTS} characters`);
-  }
+  if (isPastedProfile(interests)) return fromPastedProfile(interests, now);
   const { tools, rest } = matchInterests(interests);
   if (!tools.length && !rest.length) throw new ProfileError('invalid_input', 'Give a GitHub username or some interests');
   const languages = [];
   for (const phrase of rest) {
-    const lang = Object.hasOwn(LANGUAGES, phrase) ? LANGUAGES[phrase] : undefined;
+    const lang = languageOf(phrase);
     if (lang && !languages.some((l) => l.name === lang)) languages.push({ name: lang, weight: 1 });
   }
   return {
@@ -132,13 +154,18 @@ const MAX_LANGUAGES = 6;
 
 const byWeight = (a, b) => b.weight - a.weight || a.name.localeCompare(b.name);
 
+// Typed entries have weight 1; pasted-profile entries carry their own (prose
+// mentions count less than listed skills), scaled the same way.
+const typedWeight = (t) => Math.round(TYPED_WEIGHT * (Number.isFinite(t.weight) ? t.weight : 1) * 100) / 100;
+
 function boost(list, typed, makeEntry) {
   const out = (list || []).map((x) => ({ ...x }));
   for (const t of typed || []) {
     const hit = out.find((x) => x.name === t.name);
     if (hit) {
-      hit.weight = Math.max(hit.weight || 0, TYPED_WEIGHT);
-      if (hit.strength) hit.strength = 'strong'; // the user said so
+      hit.weight = Math.max(hit.weight || 0, typedWeight(t));
+      // The user said so (typed, or a listed LinkedIn skill; not a prose mention).
+      if (hit.strength && !(t.weight < 1)) hit.strength = 'strong';
     } else {
       out.push(makeEntry(t));
     }
@@ -155,15 +182,16 @@ function mergeInterests(profile, interestsProfile) {
   return {
     ...profile,
     source: 'github+interests',
-    languages: boost(profile.languages, interestsProfile.languages, (l) => ({ name: l.name, weight: TYPED_WEIGHT }))
+    ...(interestsProfile.pastedFrom ? { pastedFrom: interestsProfile.pastedFrom } : {}),
+    languages: boost(profile.languages, interestsProfile.languages, (l) => ({ name: l.name, weight: typedWeight(l) }))
       .slice(0, MAX_LANGUAGES),
     tools: boost(profile.tools, interestsProfile.tools, (t) => ({
       name: t.name,
       label: t.label || label(t.name),
-      weight: TYPED_WEIGHT,
+      weight: typedWeight(t),
       evidence: [],
     })).slice(0, MAX_TOOLS),
-    topics: [...(profile.topics || [])],
+    topics: [...new Set([...(interestsProfile.topics || []), ...(profile.topics || [])])].slice(0, 20),
     keywords: [...new Set([...(interestsProfile.keywords || []), ...(profile.keywords || [])])].slice(0, MAX_KEYWORDS),
   };
 }
@@ -446,7 +474,7 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
     if (hasGithub) {
       const username = normalizeUsername(github);
       // Check the typed text before spending GitHub calls on it.
-      const typedMatches = typeof interests === 'string' && interests.length <= MAX_INTERESTS
+      const typedMatches = typeof interests === 'string' && !isPastedProfile(interests)
         ? matchInterests(interests)
         : null;
       const typed = hasInterests && (!typedMatches || typedMatches.tools.length + typedMatches.rest.length > 0)
@@ -460,10 +488,12 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
       throw new ProfileError('invalid_input', 'Give a GitHub username or some interests');
     }
     span.setAttribute('profile.tools_found', profile.tools.length);
+    // Which input kind only; the pasted text itself never goes on a span.
+    if (profile.pastedFrom) span.setAttribute('profile.pasted_from', profile.pastedFrom);
     return profile;
   });
 }
 
-module.exports = { buildProfile, mergeInterests, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };
+module.exports = { buildProfile, mergeInterests, isPastedProfile, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };
 // For app/profile/private.js: the same scan and aggregation over repos it picks.
 module.exports.internal = { scanRepo, aggregate, mapLimit, guarded };

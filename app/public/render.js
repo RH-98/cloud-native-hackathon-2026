@@ -124,6 +124,8 @@ export function renderProfile(section, profile, notes = []) {
   section.replaceChildren();
   const blended = profile.source === 'github+interests';
   const isGithub = profile.source === 'github' || blended;
+  // A pasted LinkedIn profile: we never show a name from it (we don't parse one).
+  const linkedin = profile.pastedFrom === 'linkedin';
   const avatarUrl = safeUrl(profile.avatarUrl);
   const name = profile.displayName || profile.username || 'You';
   const avatar = avatarUrl
@@ -135,9 +137,9 @@ export function renderProfile(section, profile, notes = []) {
     isGithub && profile.username
       ? h('p', { class: 'profile__sub' },
         externalLink(`https://github.com/${encodeURIComponent(profile.username)}`, `@${profile.username}`),
-        ` · ${scanLine(profile)}${blended ? ', plus the interests you typed' : ''}`,
+        ` · ${scanLine(profile)}${blended ? (linkedin ? ', plus skills from a pasted LinkedIn profile' : ', plus the interests you typed') : ''}`,
         profile.privateRepos > 0 ? ` · includes ${profile.privateRepos} private repo${profile.privateRepos === 1 ? '' : 's'}` : '')
-      : h('p', { class: 'profile__sub' }, 'From the interests you typed'));
+      : h('p', { class: 'profile__sub' }, linkedin ? 'From pasted LinkedIn profile' : 'From the interests you typed'));
 
   const blocks = [];
   const tools = profile.tools || [];
@@ -151,7 +153,7 @@ export function renderProfile(section, profile, notes = []) {
       blocks.push(h('div', { class: 'profile__block' },
         h('h3', {}, 'Tools we spotted'),
         h('p', { class: 'hint' }, blended
-          ? 'Focus or hover a tool to see why: which kind of evidence, in which repos. Tools without repos are ones you typed.'
+          ? `Focus or hover a tool to see why: which kind of evidence, in which repos. Tools without repos are ${linkedin ? 'from LinkedIn' : 'ones you typed'}.`
           : 'Focus or hover a tool to see why: which kind of evidence, in which repos.'),
         strong.length ? h('h4', { class: 'profile__group' }, 'Strong signals') : null,
         strong.length ? h('ul', { class: 'chips' }, strong.map(toolChip)) : null,
@@ -174,6 +176,17 @@ export function renderProfile(section, profile, notes = []) {
     if (words.length) {
       blocks.push(h('div', { class: 'profile__block' }, h('h3', {}, 'Topics and keywords'), chips(words.slice(0, 20))));
     }
+  } else if (linkedin) {
+    const langs = (profile.languages || []).map((l) => l.name);
+    const skills = [...new Set([...tools.map((t) => t.label || t.name), ...langs])];
+    if (skills.length) {
+      blocks.push(h('div', { class: 'profile__block' }, h('h3', {}, 'Skills and tools from LinkedIn'), chips(skills.slice(0, 20), 'chip chip--tool')));
+    }
+    const words = [...new Set([...(profile.topics || []), ...(profile.keywords || [])])];
+    if (words.length) {
+      blocks.push(h('div', { class: 'profile__block' }, h('h3', {}, 'Roles and topics from LinkedIn'), chips(words.slice(0, 20))));
+    }
+    blocks.push(h('p', { class: 'hint' }, 'We kept only these signals, not the text you pasted. Not quite right? Paste the Skills section too, or type interests instead.'));
   } else {
     const words = [...new Set([...tools.map((t) => t.name), ...(profile.keywords || []), ...(profile.topics || [])])];
     blocks.push(h('div', { class: 'profile__block' },
