@@ -132,9 +132,28 @@ Free-slot options never export: the `.ics` file and "Copy plan as text" list onl
 | `GET /api/me/social?conferenceId=` | signed in | `{ "optedIn": bool, "optedInAt" }` |
 | `PUT /api/me/social` | signed in, same origin; `{ "conferenceId", "optIn": bool, "profile"?: Profile }` | `{ "optedIn" }`. 403 unless `profile.source` is `github` or `github+interests` and `profile.username` is the signed-in login; stores derived signals only |
 | `GET /auth/github/login?returnTo=/…`, `GET /auth/github/callback`, `POST /auth/logout` | | GitHub OAuth (scope `read:user`); the access token is never stored. Account errors: 401 `unauthorized`, 403 `forbidden`, 503 `unavailable` (database down) |
+| `GET /api/changes` | query `conferenceId` (required), `since` (ISO 8601 date-time with a zone; only changes detected after it), `sessionIds` (comma-separated, max 200, all of this conference) | `{ "changes": [Change], "checkedAt": "…" \| null }`, newest first, at most 200 |
 | `GET /` and static files | | the UI from `app/public/` |
 
 Errors are JSON `{ "error": { "code": "not_found", "message": "No GitHub user named …" } }` with status 400 (`invalid_input`), 404 (`not_found`), 429 (`rate_limited`) or 502 (`upstream`).
+
+`Change` is one document of the `conference-changes` index, written by the `schedule-watch` CronJob (`app/scripts/watch-schedule.js`). `checkedAt` is when that job last checked the conference; both are `null`/empty without Elasticsearch. An Elasticsearch failure answers 502 (`upstream`).
+
+```jsonc
+{
+  "id": "kubecon-na-2026:1223002@2026-11-09T22:10:00.000Z",
+  "conferenceId": "kubecon-na-2026",
+  "sessionId": "kubecon-na-2026:1223002",
+  "sessionTitle": "You Don’t Have to Choose: Argo and Flux Are Friends!",
+  "type": "time_changed",          // time_changed | room_changed | cancelled | added | details_changed
+  "before": { "start": "2026-11-10T14:50:00-07:00", "end": "2026-11-10T15:20:00-07:00", "room": "Salt Palace | Level 2 | 255 BC" }, // null for added
+  "after":  { "start": "2026-11-10T16:20:00-07:00", "end": "2026-11-10T16:50:00-07:00", "room": "Salt Palace | Level 1 | Grand Ballroom BDF" }, // null for cancelled
+  "detectedAt": "2026-11-09T22:10:00.000Z",
+  "source": "simulated"            // live | simulated (ConfigMap schedule-overrides)
+}
+```
+
+Plans apply recorded changes: sessions use their new time and room, and cancelled sessions are left out.
 
 Pin, skip and swap happen in the browser: swap promotes a backup locally; pin and skip re-request `POST /api/plan` with `options.pinned` / `options.skipped`. The `.ics` calendar export is built in the browser from the plan.
 
