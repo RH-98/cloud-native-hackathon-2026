@@ -1,0 +1,89 @@
+# Dash0 check rules for the conference planner, in the PrometheusRule format
+# Dash0 accepts (UI "Import", `dash0 apply -f`, or the Dash0 operator).
+# Each alerting rule becomes one check rule named "<group> - <alert>".
+# `$__threshold` is replaced by dash0-threshold-degraded / dash0-threshold-critical.
+#
+# Metrics are selected by their OpenTelemetry name (otel_metric_name); attribute
+# keys use underscores in PromQL (service.name -> service_name,
+# search.backend -> search_backend). Custom metrics are defined in app/metrics.js.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: conference-planner
+  annotations:
+    dash0.com/source: github.com/RH-98/cloud-native-hackathon-2026/dash0/check-rules.yaml
+spec:
+  groups:
+    - name: conference-planner
+      interval: 1m
+      rules:
+        - alert: Plan error ratio
+          # Share of plan requests that failed on our side (outcome="error").
+          # Bad requests (unknown conference, invalid options) are outcome="rejected"
+          # and don't count against us.
+          expr: >-
+            (
+              sum(rate({otel_metric_name="planner.plans", otel_metric_type="sum", service_name="conference-planner", outcome="error"}[5m]))
+              /
+              sum(rate({otel_metric_name="planner.plans", otel_metric_type="sum", service_name="conference-planner", outcome=~"ok|error"}[5m]))
+            ) > $__threshold
+          for: 5m
+          annotations:
+            summary: "More than 5% of plans are failing"
+            description: >-
+              {{ $value | humanizePercentage }} of POST /api/plan requests failed in the last 5 minutes.
+              Look at failed plan.build spans in Dash0 (service conference-planner) for the exception.
+            dash0-threshold-degraded: "0.02"
+            dash0-threshold-critical: "0.05"
+          labels:
+            severity: critical
+            service: conference-planner
+
+        - alert: Plan p95 duration
+          expr: >-
+            histogram_quantile(0.95, sum(rate({otel_metric_name="planner.plan.duration", otel_metric_type="histogram", service_name="conference-planner"}[5m])))
+            > $__threshold
+          for: 5m
+          annotations:
+            summary: "p95 plan build time is above 5 seconds"
+            description: >-
+              The 95th percentile of planner.plan.duration is {{ $value | humanizeDuration }}.
+              Usually Elasticsearch search latency (see planner.search.duration) or semantic inference.
+            dash0-threshold-degraded: "3"
+            dash0-threshold-critical: "5"
+          labels:
+            severity: warning
+            service: conference-planner
+
+        - alert: Search falling back to snapshot
+          # Any fallback means plans are served from the bundled snapshot instead of
+          # Elasticsearch: reason="es_error" (ES failed) or "no_credentials" (Secret missing).
+          expr: >-
+            sum(increase({otel_metric_name="planner.search.fallbacks", otel_metric_type="sum", service_name="conference-planner"}[5m]))
+            > $__threshold
+          for: 10m
+          annotations:
+            summary: "Elasticsearch is degraded: plans come from the snapshot"
+            description: >-
+              {{ $value }} plans fell back to the in-memory snapshot in the last 5 minutes, for 10 minutes.
+              Check es.search_sessions spans and the app-credentials Secret.
+            dash0-threshold-degraded: "0"
+            dash0-threshold-critical: "5"
+          labels:
+            severity: warning
+            service: conference-planner
+
+        - alert: GitHub rate limit low
+          expr: >-
+            min(last_over_time({otel_metric_name="github.ratelimit.remaining", otel_metric_type="gauge", service_name="conference-planner"}[10m]))
+            < $__threshold
+          annotations:
+            summary: "Fewer than 500 GitHub API requests left this hour"
+            description: >-
+              Only {{ $value }} GitHub API requests remain in the current window. New profiles will
+              fall back to "type your interests" when it reaches 0. Check that GITHUB_TOKEN is set.
+            dash0-threshold-degraded: "500"
+            dash0-threshold-critical: "100"
+          labels:
+            severity: warning
+            service: conference-planner

@@ -7,6 +7,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const es = require('../search/elasticsearch');
+const metrics = require('../metrics');
 const snapshotSearch = require('./snapshot-search');
 const { planDays, normalizeOptions } = require('./plan');
 const { tierRank } = require('./terms');
@@ -34,7 +35,8 @@ function defaultClient(env) {
 // Runs the Elasticsearch search, falling back to the snapshot on any error
 // (recorded on the plan.build span; the es.* span records the error itself).
 async function search(span, { snapshot, query, env, client }) {
-  if (client || es.searchAvailable(env)) {
+  const available = Boolean(client) || es.searchAvailable(env);
+  if (available) {
     try {
       const c = client || defaultClient(env);
       const [candidates, sponsors] = await Promise.all([
@@ -45,17 +47,38 @@ async function search(span, { snapshot, query, env, client }) {
     } catch (err) {
       span.recordException(err);
       span.addEvent('search_fallback', { 'search.backend': 'snapshot', 'error.type': err.name || 'Error' });
+      metrics.recordSearchFallback('es_error');
     }
+  } else {
+    metrics.recordSearchFallback('no_credentials');
   }
-  return {
-    backend: 'snapshot',
-    candidates: snapshotSearch.searchSessions(snapshot, query),
-    sponsors: snapshotSearch.searchSponsors(snapshot, query),
-  };
+  let startedAt = metrics.now();
+  const candidates = snapshotSearch.searchSessions(snapshot, query);
+  metrics.recordSearchDuration({ index: 'sessions', fusion: 'snapshot', startedAt });
+  startedAt = metrics.now();
+  const sponsors = snapshotSearch.searchSponsors(snapshot, query);
+  metrics.recordSearchDuration({ index: 'sponsors', fusion: 'snapshot', startedAt });
+  return { backend: 'snapshot', candidates, sponsors };
 }
+
+const CLIENT_ERRORS = new Set(['invalid_input', 'not_found']);
 
 // deps (tests): { env, client } — a fake Elasticsearch client, or env without credentials.
 async function buildPlan({ conferenceId, profile, options } = {}, deps = {}) {
+  const startedAt = metrics.now();
+  // Filled in as the plan is built; only fixed values and a known conference id.
+  const m = { conference: undefined, source: profile && profile.source, backend: 'none', picks: undefined };
+  try {
+    const plan = await tracedBuildPlan({ conferenceId, profile, options }, deps, m);
+    metrics.recordPlan({ ...m, outcome: 'ok', startedAt });
+    return plan;
+  } catch (err) {
+    metrics.recordPlan({ ...m, outcome: CLIENT_ERRORS.has(err.code) ? 'rejected' : 'error', startedAt });
+    throw err;
+  }
+}
+
+async function tracedBuildPlan({ conferenceId, profile, options }, deps, m) {
   const env = deps.env || process.env;
   return es.withSpan('plan.build', { 'conference.id': String(conferenceId || '').slice(0, 64) }, async (span) => {
     const snapshot = loadSnapshot(conferenceId);
@@ -64,6 +87,7 @@ async function buildPlan({ conferenceId, profile, options } = {}, deps = {}) {
       err.code = 'not_found';
       throw err;
     }
+    m.conference = conferenceId;
     if (!profile || typeof profile !== 'object') {
       const err = new Error('A profile is required');
       err.code = 'invalid_input';
@@ -84,11 +108,13 @@ async function buildPlan({ conferenceId, profile, options } = {}, deps = {}) {
     const sessionsById = new Map(snapshot.sessions.map((s) => [s.id, s]));
     const recs = candidates.map((c) => ({ ...c, session: sessionsById.get(c.session.id) || c.session }));
 
+    m.backend = backend;
     const days = planDays({ snapshot, candidates: recs, sponsors, options: opts, tierRank });
+    m.picks = days.reduce((n, d) => n + d.slots.filter((s) => s.pick).length, 0);
     span.setAttribute('search.backend', backend);
     span.setAttribute('plan.days', opts.days.join(','));
     span.setAttribute('plan.candidates', candidates.length);
-    span.setAttribute('plan.picks', days.reduce((n, d) => n + d.slots.filter((s) => s.pick).length, 0));
+    span.setAttribute('plan.picks', m.picks);
 
     const { conference } = snapshot;
     return {
