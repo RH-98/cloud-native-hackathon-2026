@@ -5,7 +5,9 @@
 //
 // What's stored: GitHub id, login, name and avatar URL; hashed session ids;
 // the planner state a user saved; and, only after opting in, derived social
-// signals (tool, topic, language and keyword labels with weights). Never a
+// signals (tool, topic, language and keyword labels with weights), and, after
+// the user connects the read-only GitHub App, tool and language labels from
+// their private repos (no repo names). Never a
 // GitHub access token, never code.
 //
 // Every query is parameterized. pg is traced by the OpenTelemetry
@@ -16,6 +18,8 @@ const { trace } = require('@opentelemetry/api');
 const MIGRATION_LOCK_ID = 727274001; // pg_advisory_lock key for migrations
 const SESSION_DAYS = 7;
 
+// private_profiles: derived signals from the user's private repos (tool and
+// language labels with weights, and a repo count). Never repo names, code or a token.
 // Idempotent: safe to run on every start, from every replica at once (under
 // the advisory lock).
 const MIGRATION_SQL = `
@@ -48,6 +52,11 @@ CREATE TABLE IF NOT EXISTS social_profiles (
   profile       jsonb NOT NULL,
   opted_in_at   timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, conference_id)
+);
+CREATE TABLE IF NOT EXISTS private_profiles (
+  user_id    bigint PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  profile    jsonb NOT NULL,
+  scanned_at timestamptz NOT NULL DEFAULT now()
 );
 `;
 
@@ -176,6 +185,25 @@ function createDb(pool) {
 
     async deleteSocialProfile(userId, conferenceId) {
       await q('DELETE FROM social_profiles WHERE user_id = $1 AND conference_id = $2', [userId, conferenceId]);
+    },
+
+    async getPrivateProfile(userId) {
+      const { rows } = await q('SELECT profile, scanned_at FROM private_profiles WHERE user_id = $1', [userId]);
+      return rows[0] ? { profile: rows[0].profile, scannedAt: new Date(rows[0].scanned_at).toISOString() } : null;
+    },
+
+    async setPrivateProfile(userId, profile) {
+      const { rows } = await q(
+        `INSERT INTO private_profiles (user_id, profile, scanned_at) VALUES ($1, $2, now())
+         ON CONFLICT (user_id) DO UPDATE SET profile = EXCLUDED.profile, scanned_at = now()
+         RETURNING scanned_at`,
+        [userId, JSON.stringify(profile)],
+      );
+      return new Date(rows[0].scanned_at).toISOString();
+    },
+
+    async deletePrivateProfile(userId) {
+      await q('DELETE FROM private_profiles WHERE user_id = $1', [userId]);
     },
 
     // Real attendees who opted in, for the social matcher. Each entry:

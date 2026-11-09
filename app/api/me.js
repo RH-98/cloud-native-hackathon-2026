@@ -1,5 +1,5 @@
 // The signed-in user's account: GET /api/me, GET|PUT /api/me/plan,
-// GET|PUT /api/me/social. Cookie-authenticated (sb_session); writes need a
+// GET|PUT /api/me/social, DELETE /api/me/private-profile. Cookie-authenticated (sb_session); writes need a
 // same-origin request (CSRF). With accounts off, GET /api/me answers
 // { enabled: false, user: null } and the other routes 404.
 const { trace, SpanStatusCode } = require('@opentelemetry/api');
@@ -138,7 +138,14 @@ function createMeHandler(accounts) {
       if (!accounts.enabled) return sendJson(res, 200, { enabled: false, user: null });
       const token = sessionToken(req);
       const user = token ? await db((d) => d.getSessionUser(token)) : null;
-      return sendJson(res, 200, { enabled: true, user: publicUser(user) });
+      const privateRepos = { enabled: Boolean(accounts.privateRepos) };
+      if (user && accounts.privateRepos) {
+        // Count and time only: never repo names.
+        const row = await db((d) => d.getPrivateProfile(user.id));
+        privateRepos.repoCount = row ? Number(row.profile?.repoCount) || 0 : 0;
+        privateRepos.scannedAt = row ? row.scannedAt : null;
+      }
+      return sendJson(res, 200, { enabled: true, user: publicUser(user), privateRepos });
     }
     if (!accounts.enabled) return sendError(res, 'not_found', 'Accounts are not enabled on this server');
 
@@ -188,6 +195,14 @@ function createMeHandler(accounts) {
         return sendJson(res, 200, { optedIn: true });
       }
       return sendError(res, 'method_not_allowed', 'Use GET or PUT', { allow: 'GET, PUT' });
+    }
+
+    if (p === '/api/me/private-profile') {
+      if (m !== 'DELETE') return sendError(res, 'method_not_allowed', 'Use DELETE', { allow: 'DELETE' });
+      requireSameOrigin(req);
+      const user = await requireUser(req);
+      await db((d) => d.deletePrivateProfile(user.id));
+      return sendJson(res, 200, { deleted: true });
     }
 
     return sendError(res, 'not_found', 'No such API route');

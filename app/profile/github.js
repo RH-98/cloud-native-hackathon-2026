@@ -41,7 +41,10 @@ function encodePath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
-function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 40 } = {}) {
+// contentsApi: read files through the API (GET /repos/{o}/{r}/contents/{path},
+// raw media type) with the token, never raw.githubusercontent.com. Used for
+// private repos with a user's short-lived GitHub App token.
+function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCalls = 40, contentsApi = false } = {}) {
   let calls = 0;
 
   async function request(span, url, { accept, auth }) {
@@ -118,8 +121,11 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
       const base = path.split('/').pop();
       const kind = /^readme/i.test(base) ? 'readme' : base.includes('.') ? base.slice(base.lastIndexOf('.')) : base;
       return withSpan('github.fetch_file', { 'github.file.kind': kind }, async (span) => {
-        const url = `${RAW}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`;
-        const res = await request(span, url, { accept: 'text/plain', auth: false });
+        const res = contentsApi
+          ? await request(span, `${API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePath(path)}?ref=${encodeURIComponent(branch)}`,
+            { accept: 'application/vnd.github.raw', auth: true })
+          : await request(span, `${RAW}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`,
+            { accept: 'text/plain', auth: false });
         const text = await res.text();
         return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) : text;
       });

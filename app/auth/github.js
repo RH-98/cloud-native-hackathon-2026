@@ -140,8 +140,9 @@ class OAuthError extends Error {
 
 // Exchanges the one-time code for an access token. Error messages never
 // include the code, the secret or the response body.
-function exchangeCode({ fetch = globalThis.fetch, clientId, clientSecret, code, redirectUri }) {
-  return withSpan('github.oauth_exchange', async (span) => {
+// spanName: github.oauth_exchange (sign-in) or github.app_oauth_exchange (the GitHub App).
+function exchangeCode({ fetch = globalThis.fetch, clientId, clientSecret, code, redirectUri, spanName = 'github.oauth_exchange' }) {
+  return withSpan(spanName, async (span) => {
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json', 'user-agent': 'switchback-planner' },
@@ -191,6 +192,9 @@ module.exports = {
   SESSION_TTL_SECONDS,
   sign,
   verify,
+  safeEqual,
+  cookie,
+  withSpan,
   parseCookies,
   sessionCookie,
   clearSessionCookie,

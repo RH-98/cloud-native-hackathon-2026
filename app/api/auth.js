@@ -4,6 +4,7 @@ const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const { send, sendError } = require('./http');
 const gh = require('../auth/github');
 const { sessionToken, sameOrigin } = require('../auth');
+const { createGithubAppHandler } = require('./github-app');
 
 function redirect(res, location, cookies = []) {
   const headers = { location, 'cache-control': 'no-store' };
@@ -18,7 +19,9 @@ function recordFailure(err, what) {
   span?.setStatus({ code: SpanStatusCode.ERROR, message: what });
 }
 
-function createAuthHandler(accounts) {
+// appDeps: fakes for the GitHub App routes in tests.
+function createAuthHandler(accounts, appDeps) {
+  const handleGithubApp = createGithubAppHandler(accounts, appDeps);
   async function callback(req, res, url) {
     const failed = (cookies = []) => redirect(res, '/?login=failed', [gh.clearStateCookie(), ...cookies]);
     const cookies = gh.parseCookies(req.headers.cookie);
@@ -66,6 +69,7 @@ function createAuthHandler(accounts) {
 
   return function handleAuth(req, res, url) {
     const p = url.pathname;
+    if (p.startsWith('/auth/github-app/')) return handleGithubApp(req, res, url);
     if (p === '/auth/github/login') {
       if (req.method !== 'GET') return sendError(res, 'method_not_allowed', 'Use GET', { allow: 'GET' });
       if (!accounts.enabled) return redirect(res, '/?login=unavailable');

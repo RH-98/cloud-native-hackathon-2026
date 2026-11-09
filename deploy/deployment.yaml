@@ -85,6 +85,22 @@ spec:
                   name: db-app
                   key: uri
                   optional: true
+            # Private repos (optional): the read-only GitHub App (Contents and
+            # Metadata: read). Off unless all three are set.
+            - name: GITHUB_APP_SLUG
+              value: switchback-conference-scheduler
+            - name: GITHUB_APP_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: github-app-client-id
+                  optional: true
+            - name: GITHUB_APP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-credentials
+                  key: github-app-client-secret
+                  optional: true
             # OpenTelemetry: traces, metrics and explicitly emitted logs go to Dash0.
             # The auth header lives in the app-credentials Secret, never in git.
             - name: NODE_OPTIONS

@@ -348,3 +348,5 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
 }
 
 module.exports = { buildProfile, mergeInterests, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };
+// For app/profile/private.js: the same scan and aggregation over repos it picks.
+module.exports.internal = { scanRepo, aggregate, mapLimit };

@@ -6,6 +6,7 @@ const { createPlanHandler } = require('./plan');
 const { createConnectionsHandler } = require('./connections');
 const { createStaticHandler } = require('./static');
 const { createAuthHandler } = require('./auth');
+const { privateSignalsFor } = require('./github-app');
 const { createChangesHandler } = require('./changes');
 const schedule = require('../schedule');
 const { createMeHandler } = require('./me');
@@ -14,7 +15,7 @@ const { createAccounts, sessionToken } = require('../auth');
 // connections: optional deps for handleConnections (tests pass a fake search or env).
 // accounts: from app/auth accountsFromEnv(); omitted (tests, local dev) means accounts are off.
 function createHandler({ buildProfile, buildPlan, publicDir, connections, accounts = createAccounts(), getChanges = schedule.getChanges } = {}) {
-  const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference });
+  const handlePlan = createPlanHandler({ buildProfile, buildPlan, hasConference, withPrivateSignals: privateSignalsFor(accounts) });
   const handleConnections = createConnectionsHandler(connections);
   const handleAuth = createAuthHandler(accounts);
   const handleMe = createMeHandler(accounts);
