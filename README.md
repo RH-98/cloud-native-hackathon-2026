@@ -31,7 +31,7 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | Variable | Value / source | Purpose |
 |---|---|---|
 | `PORT` | `8080` (Dockerfile) | HTTP port; `/healthz` and `/readyz` must keep working |
-| `TEAM_NAME` | `ryan-hilton-real` | Shown on the page |
+| `TEAM_NAME` | `ryan-hilton-real` | Team name (not currently shown in the UI) |
 | `ELASTICSEARCH_URL`, `ELASTICSEARCH_API_KEY` | Endpoint in the manifest, key from Secret `app-credentials` | Session search. Without them the planner scores the bundled snapshot in memory |
 | `GITHUB_TOKEN` | Secret `app-credentials`, key `github-token` | GitHub API calls for profiles. Optional locally (unauthenticated: 60 requests/hour) |
 | `NODE_OPTIONS` | `--require @opentelemetry/auto-instrumentations-node/register` | Loads OpenTelemetry auto-instrumentation |
@@ -44,6 +44,20 @@ kubectl -n team-ryan-hilton-real create secret generic app-credentials \
 | `K8S_POD_NAME`, `K8S_POD_UID`, `OTEL_RESOURCE_ATTRIBUTES` | Pod metadata | Link telemetry to the pod in Dash0 |
 
 To run locally without Dash0: `cd app && npm install && npm start`. Run the tests with `npm test`.
+
+## The app: Switchback
+
+The UI is **Switchback**, plain HTML, CSS and ES modules in [`app/public/`](app/public/) with no build step, served by `app/server.js` (`node:http`). Open http://localhost:8080 after `npm start`; it works offline with no credentials (the planner falls back to the snapshot).
+
+| Path | What it is |
+|---|---|
+| `app/server.js`, `app/api/` | HTTP routes: `GET /api/conferences`, `POST /api/plan` (shapes in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)), static files with a strict CSP, `/healthz`, `/readyz` |
+| `app/public/index.html`, `styles.css` | The page. Every color, font and spacing value is a CSS custom property at the top of `styles.css`, light and dark |
+| `app/public/app.js` | Wires the form, plan actions (swap, pin, skip, day tabs) and exports |
+| `app/public/render.js`, `format.js` | DOM rendering and Mountain Time formatting |
+| `app/public/api.js`, `state.js`, `ics.js` | API calls, state and local swaps, `.ics` and text export |
+
+The page loads the Archivo font from Google Fonts and GitHub avatars from `avatars.githubusercontent.com`; nothing else leaves the origin. The optional "People to meet" panel calls `POST /api/connections` and hides itself if that route isn't there.
 
 ## Conference data
 

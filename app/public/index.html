@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Switchback: your route through KubeCon NA 2026</title>
+  <meta name="description" content="A personal KubeCon + CloudNativeCon North America 2026 day planner. Give it your GitHub username or your interests and get a day plan with backups for every slot.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the planner</a>
+
+  <header class="masthead">
+    <div class="masthead__inner">
+      <p class="brand">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <path d="M3 27 L12 9 L17 18 L21 12 L29 27 Z" />
+          <path class="brand__trail" d="M8 25 C 14 23, 10 20, 15 19 S 20 16, 21 14" />
+        </svg>
+        <span>Switchback</span>
+      </p>
+      <h1 class="masthead__title">Plot your route <span class="masthead__hl">through KubeCon.</span></h1>
+      <p class="masthead__lede">Give us your GitHub username and we read your public repos, then map every day of sessions to what you actually build, with two backups for each slot and booths worth a detour.</p>
+      <p class="masthead__event">
+        <span>KubeCon + CloudNativeCon North America 2026</span>
+        <span>Salt Palace, Salt Lake City</span>
+        <span>Nov 9&ndash;12</span>
+      </p>
+    </div>
+    <svg class="ridgeline" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <path class="ridgeline__far" d="M0 120 V70 L90 40 L170 62 L260 18 L340 50 L420 30 L520 66 L610 22 L700 48 L790 12 L880 52 L960 34 L1060 70 L1150 26 L1240 54 L1330 30 L1440 58 V120 Z" />
+      <path class="ridgeline__mid" d="M0 120 V88 L120 64 L210 84 L330 52 L450 86 L560 60 L680 90 L800 58 L930 84 L1040 62 L1170 92 L1290 66 L1440 86 V120 Z" />
+      <path class="ridgeline__near" d="M0 120 V106 L200 96 L420 108 L640 98 L860 110 L1080 96 L1300 106 L1440 100 V120 Z" />
+    </svg>
+  </header>
+
+  <main id="main" tabindex="-1" class="layout">
+    <section class="trailhead" aria-labelledby="start-heading">
+      <h2 id="start-heading" class="section-title"><span class="section-title__step">01</span> Trailhead</h2>
+      <form id="plan-form" class="planner-form" novalidate>
+        <fieldset class="segmented">
+          <legend>How should we get to know you?</legend>
+          <div class="segmented__options">
+            <input type="radio" id="source-github" name="source" value="github" checked>
+            <label for="source-github">GitHub username</label>
+            <input type="radio" id="source-interests" name="source" value="interests">
+            <label for="source-interests">Type your interests</label>
+          </div>
+        </fieldset>
+
+        <div class="field" id="github-field">
+          <label for="github">GitHub username</label>
+          <div class="input-prefix">
+            <span class="input-prefix__text" aria-hidden="true">github.com/</span>
+            <input id="github" name="github" type="text" autocomplete="username" autocapitalize="off" spellcheck="false"
+              maxlength="39" pattern="[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}" aria-describedby="github-hint">
+          </div>
+          <p class="hint" id="github-hint">We only read public repos and keep derived signals (languages, tools, topics), never code.</p>
+        </div>
+
+        <div class="field" id="interests-field" hidden>
+          <label for="interests">Your interests</label>
+          <textarea id="interests" name="interests" rows="3" maxlength="500" aria-describedby="interests-hint interests-count"></textarea>
+          <p class="hint" id="interests-hint">Comma separated, for example: argo cd, opentelemetry, platform engineering, rust</p>
+          <p class="hint hint--count" id="interests-count" aria-live="polite">0 of 500 characters</p>
+        </div>
+
+        <div class="field">
+          <label for="conference">Conference</label>
+          <select id="conference" name="conference">
+            <option value="kubecon-na-2026">KubeCon + CloudNativeCon North America 2026</option>
+          </select>
+        </div>
+
+        <details class="options" id="options">
+          <summary>Trip options</summary>
+          <div class="options__body">
+            <fieldset class="checks" id="days-fieldset">
+              <legend>Days</legend>
+              <div class="checks__list" id="days-list"></div>
+            </fieldset>
+
+            <fieldset class="checks">
+              <legend>Levels <span class="legend-note">(none checked means all)</span></legend>
+              <div class="checks__list">
+                <label class="check"><input type="checkbox" name="levels" value="Beginner"> Beginner</label>
+                <label class="check"><input type="checkbox" name="levels" value="Intermediate"> Intermediate</label>
+                <label class="check"><input type="checkbox" name="levels" value="Advanced"> Advanced</label>
+              </div>
+            </fieldset>
+
+            <div class="field field--check">
+              <label class="check"><input type="checkbox" id="first-timer" name="firstTimer" aria-describedby="first-timer-hint"> First KubeCon</label>
+              <p class="hint" id="first-timer-hint">Favors intros, beginner sessions and a gentler pace.</p>
+            </div>
+
+            <div class="field field--check">
+              <label class="check"><input type="checkbox" id="include-sponsored" name="includeSponsored" checked> Include sponsored sessions</label>
+            </div>
+
+            <div class="field field--inline">
+              <label for="break-minutes">Break between sessions</label>
+              <div class="input-suffix">
+                <input id="break-minutes" name="breakMinutes" type="number" min="0" max="120" step="5" value="0" inputmode="numeric" aria-describedby="break-unit">
+                <span id="break-unit" class="input-suffix__text">minutes</span>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="field field--check">
+          <label class="check"><input type="checkbox" id="suggest-people" name="suggestPeople" checked aria-describedby="suggest-people-hint"> Suggest attendees who opted in to meet</label>
+          <p class="hint" id="suggest-people-hint">Shows a few people with shared interests who chose to be found. Nothing about you is shared with them.</p>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--big" id="submit">Map my route</button>
+      </form>
+    </section>
+
+    <div class="results">
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="error" class="alert" role="alert" hidden></div>
+
+      <section id="empty" class="empty" aria-labelledby="empty-heading">
+        <h2 id="empty-heading" class="section-title"><span class="section-title__step">02</span> Your route</h2>
+        <div class="empty__body">
+          <p class="empty__big">Four days. Hundreds of sessions. One of you.</p>
+          <ol class="empty__steps">
+            <li><strong>Tell us who you are.</strong> A GitHub username, or a few interests.</li>
+            <li><strong>Get a route.</strong> One pick per time slot, two backups in case the room is full.</li>
+            <li><strong>Make it yours.</strong> Swap, pin or skip, then add it to your calendar.</li>
+          </ol>
+        </div>
+      </section>
+
+      <div id="skeleton" class="skeleton" hidden aria-hidden="true">
+        <div class="skeleton__card skeleton__card--short"></div>
+        <div class="skeleton__card"></div>
+        <div class="skeleton__card"></div>
+        <div class="skeleton__card"></div>
+      </div>
+
+      <section id="profile" class="profile" aria-labelledby="profile-heading" hidden></section>
+
+      <section id="plan" class="plan" aria-labelledby="plan-heading" hidden>
+        <div class="plan__head">
+          <h2 id="plan-heading" class="section-title"><span class="section-title__step">03</span> Your route</h2>
+          <div class="plan__tools">
+            <button type="button" class="btn" id="export-ics">Add to calendar <span class="btn__note">(.ics)</span></button>
+            <button type="button" class="btn" id="copy-text">Copy plan as text</button>
+            <button type="button" class="btn btn--quiet" id="reset-choices" hidden>Clear pins and skips</button>
+          </div>
+        </div>
+        <p class="plan__meta" id="plan-meta"></p>
+        <div id="plan-days"></div>
+      </section>
+
+      <section id="people" class="people" aria-labelledby="people-heading" hidden></section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p><strong>Switchback</strong> is unofficial, built at the Cloud Native Hackathon in Salt Lake City, 2026. It is not affiliated with the CNCF or the Linux Foundation. Session and sponsor data come from the public KubeCon schedule; check the official schedule for changes.</p>
+  </footer>
+</body>
+</html>
