@@ -382,6 +382,7 @@ export async function loadSavedFor(conferenceId) {
     if (mine !== switchSeq || hooks.conferenceId() !== conferenceId || state.loading) return false;
     if (!saved?.request || saved.request.conferenceId !== conferenceId || !applySnapshot(state, saved)) return false;
     await loadSocial();
+    if (mine !== switchSeq) return false;
     hooks.restore();
     renderSaveBox();
     syncSignedInHint(); // the restored plan may be for another username
