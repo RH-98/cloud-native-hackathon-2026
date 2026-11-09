@@ -1,7 +1,7 @@
 // The browser account module's pure helpers: what gets saved and restored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applySnapshot, isOwnGithubProfile, snapshotState } from '../public/account.js';
+import { applySnapshot, isOwnGithubProfile, isSameLogin, prefillGithub, snapshotState } from '../public/account.js';
 
 const sample = () => ({
   request: { conferenceId: 'kubecon-na-2026', github: 'octocat', options: {} },
@@ -37,4 +37,20 @@ test('only your own GitHub profile counts as yours', () => {
   assert.equal(isOwnGithubProfile({ source: 'github+interests', username: 'torvalds' }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'interests', username: null }, user), false);
   assert.equal(isOwnGithubProfile({ source: 'github', username: 'octocat' }, null), false);
+});
+
+test('signing in fills an empty username field but keeps what was typed', () => {
+  assert.equal(prefillGithub('', 'octocat'), 'octocat');
+  assert.equal(prefillGithub('   ', 'octocat'), 'octocat');
+  assert.equal(prefillGithub(undefined, 'octocat'), 'octocat');
+  assert.equal(prefillGithub('torvalds', 'octocat'), 'torvalds');
+  assert.equal(prefillGithub(' torvalds ', 'octocat'), 'torvalds');
+  assert.equal(prefillGithub('', null), '');
+});
+
+test('the "Use @login" button hides only for your own login', () => {
+  assert.equal(isSameLogin('OctoCat', 'octocat'), true);
+  assert.equal(isSameLogin(' @octocat ', 'octocat'), true);
+  assert.equal(isSameLogin('torvalds', 'octocat'), false);
+  assert.equal(isSameLogin('', 'octocat'), false);
 });
