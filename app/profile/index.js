@@ -379,7 +379,10 @@ async function fromGithub(username, deps, span) {
     count: c.count,
     last: c.last,
   }));
-  await mapLimit(extra, deps.concurrency || CONCURRENCY, async (job) => {
+  // Plan the optional calls against what is left of the budget, so a planned
+  // limit never trips BudgetExhausted and marks the profile partial.
+  const planned = extra.slice(0, client.apiCallsLeft);
+  await mapLimit(planned, deps.concurrency || CONCURRENCY, async (job) => {
     if (job.type === 'languages') {
       const [owner, name] = job.repo.full_name.split('/');
       languageBytes[job.i] = await guard(() => client.fetchLanguages(owner, name));
