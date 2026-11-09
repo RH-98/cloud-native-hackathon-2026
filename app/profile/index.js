@@ -329,7 +329,12 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
     if (hasGithub) {
       const username = normalizeUsername(github);
       // Check the typed text before spending GitHub calls on it.
-      const typed = hasInterests ? fromInterests(interests, deps.now ? deps.now() : Date.now()) : null;
+      const typedMatches = typeof interests === 'string' && interests.length <= MAX_INTERESTS
+        ? matchInterests(interests)
+        : null;
+      const typed = hasInterests && (!typedMatches || typedMatches.tools.length + typedMatches.rest.length > 0)
+        ? fromInterests(interests, deps.now ? deps.now() : Date.now())
+        : null;
       profile = await fromGithub(username, deps, span);
       if (typed) profile = mergeInterests(profile, typed);
     } else if (hasInterests) {
