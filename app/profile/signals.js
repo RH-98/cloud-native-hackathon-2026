@@ -217,7 +217,29 @@ const STOP = new Set(
   thing things way ways lot lots really much many something anything everything here there now today welcome thanks
   thank built-in check out check-out read find found create created creating add added adding update updated latest
   work works working commit commits copy push pushed access action merge branch main master needs meant interested
-  participate keep keeps going goes put puts give gives take takes ask asked done sure instead already still back`
+  participate keep keeps going goes put puts give gives take takes ask asked done sure instead already still back
+  api apis call calls request requests response responses hour hours minute minutes second seconds limit limits
+  limited rate live agent agents data app apps user users page pages site website web service services server
+  client clients endpoint endpoints route routes time times day days week weeks month months year years list lists
+  text link links button buttons click form forms input output result results info information view views show shows
+  real good best better great fast faster small large full free help idea ideas plan plans part parts thing
+  item items kind kinds sort level levels number numbers count total key keys token tokens job jobs task tasks
+  tool tools stack stacks system systems platform platforms solution solutions product products feature
+  everything nothing someone everyone people person each other next last end ends live-reload ready status
+  error errors fix fixes bug bugs log logs debug option options flag flags script scripts folder directory
+  directories path paths url urls link-to output outputs mode modes state states check checks session sessions
+  minimal basic basics overview intro introduction summary details detail note notes section sections table`
+    .split(/\s+/)
+    .filter(Boolean),
+);
+
+// Words about the event or the coursework rather than the person's interests:
+// fine as a repo topic someone chose, noise when they come from prose.
+const META = new Set(
+  `hackathon hackathons demo demos attendee attendees judge judges judging track tracks sponsor sponsors prize
+  prizes submission submissions team teams organizer organizers workshop workshops homework assignment assignments
+  course courses class classes lab labs tutorial tutorials conference conferences talk talks slide slides deadline
+  starter template templates boilerplate personal portfolio resume`
     .split(/\s+/)
     .filter(Boolean),
 );
@@ -236,7 +258,7 @@ function stripMarkdown(text) {
     .replace(/\S+@\S+\.\S+/g, ' ');
 }
 
-function terms(text, exclude) {
+function terms(text, exclude, allowMeta = false) {
   const out = new Map();
   const add = (t) => out.set(t, (out.get(t) || 0) + 1);
   for (const segment of stripMarkdown(text).toLowerCase().split(/[\n\r.!?;:,()[\]{}|"*_=>]+/)) {
@@ -246,7 +268,8 @@ function terms(text, exclude) {
       .filter(Boolean);
     let prev = null;
     for (const w of words) {
-      const ok = w.length >= 3 && w.length <= 30 && /[a-z]/.test(w) && !STOP.has(w) && !exclude.has(w);
+      const ok =
+        w.length >= 3 && w.length <= 30 && /[a-z]/.test(w) && !STOP.has(w) && !exclude.has(w) && (allowMeta || !META.has(w));
       if (ok) {
         add(w);
         if (prev) add(`${prev} ${w}`);
@@ -259,20 +282,54 @@ function terms(text, exclude) {
   return out;
 }
 
-// docs: [{ text, weight }] (one per repo text source). Returns up to `max`
-// short phrases ranked by weighted term frequency (capped at 3 per source);
-// bigrams get a bonus and absorb the unigrams they contain.
+// Level 1-2 Markdown headings (and the setext kind), outside code blocks.
+function readmeHeadings(text) {
+  const body = String(text || '')
+    .slice(0, 20000)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/~~~[\s\S]*?~~~/g, ' ');
+  const out = [];
+  const lines = body.split(/\r?\n/);
+  lines.forEach((line, i) => {
+    const atx = /^\s{0,3}#{1,2}\s+(.+?)\s*#*\s*$/.exec(line);
+    if (atx) out.push(atx[1]);
+    else if (i > 0 && /^\s*(=+|-+)\s*$/.test(line) && lines[i - 1].trim() && !/^\s*[-*|]/.test(lines[i - 1])) {
+      out.push(lines[i - 1].trim());
+    }
+  });
+  return out.join('\n');
+}
+
+// docs: [{ text, weight, kind, repo }], one per text source. kind is
+//   topic       repo topics (meta words like "hackathon" are fine here)
+//   description a repo description (the default)
+//   heading     README titles and level-2 headings
+//   readme      README prose: a term from here alone must show up in 2+ repos
+//   weak        forks, starred repos, contributions: counts only alongside
+//               another source
+// Returns up to `max` short phrases ranked by weighted term frequency (capped
+// at 3 per source); bigrams get a bonus and absorb the unigrams they contain.
 function extractKeywords(docs, { max = 10, exclude = [] } = {}) {
   const ex = new Set(exclude.map((e) => String(e).toLowerCase()));
   const score = new Map();
-  for (const { text, weight = 1 } of docs) {
-    if (!text) continue;
-    for (const [t, count] of terms(text, ex)) {
+  const seen = new Map(); // term -> { strong: bool, readmeRepos: Set, weak: bool }
+  docs.forEach(({ text, weight = 1, kind = 'description', repo }, i) => {
+    if (!text) return;
+    for (const [t, count] of terms(text, ex, kind === 'topic')) {
       const bonus = t.includes(' ') ? 1.5 : 1;
       score.set(t, (score.get(t) || 0) + weight * bonus * Math.min(count, 3));
+      const s = seen.get(t) || { strong: false, readmeRepos: new Set(), weak: false };
+      if (kind === 'readme') s.readmeRepos.add(repo || `doc${i}`);
+      else if (kind === 'weak') s.weak = true;
+      else s.strong = true;
+      seen.set(t, s);
     }
-  }
+  });
   const ranked = [...score.entries()]
+    .filter(([t]) => {
+      const s = seen.get(t);
+      return s.strong || s.readmeRepos.size >= 2 || (s.weak && s.readmeRepos.size >= 1);
+    })
     .filter(([t, s]) => !t.includes(' ') || s >= 2) // a bigram needs more than one weak sighting
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const picked = [];
@@ -301,4 +358,5 @@ module.exports = {
   normalizeImage,
   stripMarkdown,
   extractKeywords,
+  readmeHeadings,
 };

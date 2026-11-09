@@ -23,6 +23,35 @@
 
 const STRENGTH = { strong: 3, topic: 2, implied: 1.5, mention: 1 };
 
+// Evidence kinds. Strong kinds are real usage (a dependency, a manifest, a
+// workflow step, a container image); the rest are interest or prose.
+//   dependency  package manifests (package.json, go.mod, Chart.yaml deps…)
+//   manifest    Kubernetes apiVersion/kind, or a tool's config file in the tree
+//   workflow    GitHub Actions `uses:` or a workflow file
+//   image       container image references
+//   topic       a GitHub topic on the user's own repo
+//   readme      a prose mention in a README or description
+//   implied     another tool's evidence implies this one (Argo CD -> GitOps)
+//   fork        topic/name/description of a recently pushed fork
+//   starred     topic/name/description of a starred repo
+//   contribution topic/name/description of someone else's repo the user
+//               recently pushed to or opened a PR/issue in
+const STRONG_KINDS = new Set(['dependency', 'manifest', 'workflow', 'image']);
+const KIND_STRENGTH = {
+  dependency: STRENGTH.strong,
+  manifest: STRENGTH.strong,
+  workflow: STRENGTH.strong,
+  image: STRENGTH.strong,
+  topic: STRENGTH.topic,
+  contribution: STRENGTH.topic,
+  implied: STRENGTH.implied,
+  readme: STRENGTH.mention,
+  fork: STRENGTH.mention,
+  starred: STRENGTH.mention,
+};
+// A line or table row naming this many catalog tools is a list, not usage.
+const LIST_TOOLS = 4;
+
 const K8S = ['kubernetes'];
 
 const CATALOG = [
@@ -744,42 +773,111 @@ function imageMatches(pattern, image) {
   return globMatch(pattern, last) || globMatch(pattern, image);
 }
 
-// signals: { deps: ["npm:pg"], paths: [], manifests: [{group, kind}],
-//            images: [], topics: [], text: "lowercased description + readme" }
-// Returns Map(toolName -> strength) for one repo.
-function detectTools(signals = {}) {
+function mentionedIn(line) {
+  const hits = [];
+  for (const { name, res } of MENTION_RES) if (res.some((re) => re.test(line))) hits.push(name);
+  return hits;
+}
+
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)]|\|)/;
+
+// Prose mentions, counted per line. A line or table row naming LIST_TOOLS or
+// more catalog tools is a list ("works with Argo CD, Flux, Cilium, Kyverno…"),
+// and so is a run of short list items that together name that many: neither
+// says the author uses any of them. Returns Map(tool -> mention lines).
+function countMentions(text) {
+  const out = new Map();
+  const lines = String(text || '').toLowerCase().split(/\r?\n/);
+  const hitsByLine = lines.map((l) => (l.trim() ? mentionedIn(l) : []));
+  const skip = new Array(lines.length).fill(false);
+  for (let i = 0; i < lines.length; i++) {
+    if (hitsByLine[i].length >= LIST_TOOLS) skip[i] = true;
+    if (!LIST_ITEM.test(lines[i])) continue;
+    // A run of list items: short items naming tools, LIST_TOOLS+ distinct in all.
+    let j = i;
+    const names = new Set();
+    let allShort = true;
+    while (j < lines.length && LIST_ITEM.test(lines[j])) {
+      hitsByLine[j].forEach((n) => names.add(n));
+      if (hitsByLine[j].length && lines[j].split(/\s+/).filter(Boolean).length > 8) allShort = false;
+      j++;
+    }
+    if (names.size >= LIST_TOOLS && allShort) for (let k = i; k < j; k++) skip[k] = true;
+    i = j - 1;
+  }
+  hitsByLine.forEach((hits, i) => {
+    if (skip[i]) return;
+    for (const n of hits) out.set(n, (out.get(n) || 0) + 1);
+  });
+  return out;
+}
+
+// signals: { deps: ["npm:pg", "action:docker/build-push-action"], paths: [],
+//            manifests: [{group, kind}], images: [], topics: [],
+//            text: "description + README prose (code blocks stripped)" }
+// Returns Map(toolName -> Map(kind -> occurrences)) for one repo. Tools that
+// strong or topic evidence implies get an `implied` entry.
+function detectEvidence(signals = {}) {
   const found = new Map();
-  const bump = (name, s) => {
-    if (BY_NAME.has(name) && (found.get(name) || 0) < s) found.set(name, s);
+  const add = (name, kind, n = 1) => {
+    if (!BY_NAME.has(name) || n <= 0) return;
+    const kinds = found.get(name) || new Map();
+    kinds.set(kind, (kinds.get(kind) || 0) + n);
+    found.set(name, kinds);
   };
   const deps = (signals.deps || []).map((d) => d.toLowerCase());
   const paths = signals.paths || [];
   const manifests = signals.manifests || [];
   const images = (signals.images || []).map((i) => i.toLowerCase());
+  const count = (list, pred) => list.reduce((n, x) => n + (pred(x) ? 1 : 0), 0);
 
   for (const t of CATALOG) {
-    const strong =
-      (t.deps || []).some((p) => deps.some((d) => globMatch(p.toLowerCase(), d))) ||
-      (t.files || []).some((re) => paths.some((p) => re.test(p))) ||
-      (t.groups || []).some((g) => manifests.some((m) => manifestMatches(g, m))) ||
-      (t.images || []).some((p) => images.some((i) => imageMatches(p, i)));
-    if (strong) bump(t.name, STRENGTH.strong);
+    const depPats = (t.deps || []).map((p) => p.toLowerCase());
+    const depHit = (d) => depPats.some((p) => globMatch(p, d));
+    add(t.name, 'dependency', count(deps, (d) => !d.startsWith('action:') && depHit(d)));
+    add(t.name, 'workflow', count(deps, (d) => d.startsWith('action:') && depHit(d)));
+    const fileHit = (p) => (t.files || []).some((re) => re.test(p));
+    add(t.name, 'workflow', count(paths, (p) => p.startsWith('.github/workflows/') && fileHit(p)));
+    add(t.name, 'manifest', count(paths, (p) => !p.startsWith('.github/workflows/') && fileHit(p)));
+    add(t.name, 'manifest', count(manifests, (m) => (t.groups || []).some((g) => manifestMatches(g, m))));
+    add(t.name, 'image', count(images, (i) => (t.images || []).some((p) => imageMatches(p, i))));
   }
   for (const topic of signals.topics || []) {
     const name = lookupAlias(topic);
-    if (name) bump(name, STRENGTH.topic);
+    if (name) add(name, 'topic');
   }
-  const text = signals.text || '';
-  if (text) {
-    for (const { name, res } of MENTION_RES) {
-      if (res.some((re) => re.test(text))) bump(name, STRENGTH.mention);
+  for (const [name, n] of countMentions(signals.text)) add(name, 'readme', n);
+  for (const [name, kinds] of [...found]) {
+    if (![...kinds.keys()].some((k) => STRONG_KINDS.has(k) || k === 'topic')) continue;
+    for (const other of BY_NAME.get(name).implies || []) {
+      if (!found.get(other)?.has('implied')) add(other, 'implied');
     }
   }
-  for (const [name, s] of [...found]) {
-    if (s < STRENGTH.topic) continue;
-    for (const other of BY_NAME.get(name).implies || []) bump(other, Math.min(s, STRENGTH.implied));
-  }
   return found;
+}
+
+// Weak signals from a repo the user doesn't own or didn't write: its topics,
+// name and description, all counted as `kind` (fork | starred | contribution).
+function detectInterest(repo, kind) {
+  const found = new Map();
+  const names = new Set();
+  for (const topic of repo.topics || []) {
+    const n = lookupAlias(topic);
+    if (n) names.add(n);
+  }
+  const text = `${String(repo.name || '').replace(/[-_.]+/g, ' ')}\n${repo.description || ''}`.toLowerCase();
+  for (const n of mentionedIn(text)) names.add(n);
+  for (const n of names) found.set(n, new Map([[kind, 1]]));
+  return found;
+}
+
+// Map(toolName -> strength) for one repo: the strongest kind of evidence.
+function detectTools(signals = {}) {
+  const out = new Map();
+  for (const [name, kinds] of detectEvidence(signals)) {
+    out.set(name, Math.max(...[...kinds.keys()].map((k) => KIND_STRENGTH[k] || 0)));
+  }
+  return out;
 }
 
 // Free text -> catalog tools it names, plus the phrases that named none.
@@ -813,4 +911,7 @@ function matchInterests(text) {
   return { tools, rest };
 }
 
-module.exports = { CATALOG, STRENGTH, detectTools, matchInterests, lookupAlias, label, damping, phraseRegex, compact };
+module.exports = {
+  CATALOG, STRENGTH, STRONG_KINDS, KIND_STRENGTH, detectTools, detectEvidence, detectInterest, countMentions,
+  matchInterests, lookupAlias, label, damping, phraseRegex, compact,
+};
