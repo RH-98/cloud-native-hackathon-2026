@@ -108,13 +108,20 @@ function syncSubmit() {
 
 // Re-plans from `body`, keeping pins and skips of the route on screen (local
 // swaps are re-planned). Returns true when the new route is on screen.
-function updateRoute(body, { message = 'Updating your route…', prefix = 'Route updated' } = {}) {
+async function updateRoute(body, { message = 'Updating your route…', prefix = 'Route updated' } = {}) {
+  const prev = { pinned: state.pinned, skipped: state.skipped, swaps: new Map(state.swaps) };
   const keep = keepForUpdate(state, body.conferenceId);
   state.pinned = keep.pinned;
   state.skipped = keep.skipped;
   state.swaps.clear();
   const n = state.pinned.size;
-  return loadPlan(body, { message, done: `${prefix}: ${n} pinned session${n === 1 ? '' : 's'} kept.` });
+  const ok = await loadPlan(body, { message, done: `${prefix}: ${n} pinned session${n === 1 ? '' : 's'} kept.` });
+  if (!ok && state.plan) {
+    state.pinned = prev.pinned;
+    state.skipped = prev.skipped;
+    state.swaps = prev.swaps;
+  }
+  return ok;
 }
 
 // ---------- Form ----------

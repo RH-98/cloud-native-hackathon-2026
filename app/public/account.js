@@ -301,14 +301,26 @@ export function privateBannerText(outcome, repoCount) {
 function showPrivateBanner(text, { ok = false, action = null } = {}) {
   const banner = $('#private-banner');
   if (!banner || !text) return;
+  const active = document.activeElement;
+  const keepFocus = banner.contains(active);
+  const wasActionFocused = keepFocus && active !== banner.querySelector('.private-banner__close');
   const close = h('button', { type: 'button', class: 'btn btn--small btn--quiet private-banner__close', 'aria-label': 'Dismiss this message' }, 'Dismiss');
-  close.addEventListener('click', () => { banner.hidden = true; banner.replaceChildren(); });
+  close.addEventListener('click', () => {
+    $('#main')?.focus();
+    banner.hidden = true;
+    banner.replaceChildren();
+  });
   banner.classList.toggle('private-banner--ok', ok);
+  banner.setAttribute('role', ok ? 'status' : 'alert');
+  banner.setAttribute('aria-live', ok ? 'polite' : 'assertive');
+  // Make the live region visible before changing its content so assistive
+  // technology observes the message rather than a hidden-to-visible change.
+  banner.hidden = false;
   banner.replaceChildren(
     h('p', { class: 'private-banner__text' }, h('strong', {}, text)),
     h('div', { class: 'private-banner__actions' }, action, close),
   );
-  banner.hidden = false;
+  if (keepFocus) (wasActionFocused && action ? action : close).focus();
 }
 
 // Re-plans for the signed-in login. When that can't start (nothing to plan
