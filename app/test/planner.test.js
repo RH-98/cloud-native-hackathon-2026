@@ -137,7 +137,7 @@ test('planDays: low scores stay free time, and free gaps become slots with booth
     { sponsor: { id: 't:elastic', conferenceId: 't', name: 'Elastic', tier: 'Gold', url: 'https://e.test' }, score: 0.4, reasons: ['Makes Elasticsearch'] },
   ];
   const [day] = run(sessions, [rec(sessions[0], 0.9), rec(sessions[1], 0.05)], {}, sponsors);
-  assert.deepEqual(picks(day), ['t:a']);
+  assert.deepEqual(picks(day), ['t:k', 't:a']); // the keynote fills its slot before the day's 9:00 window
   const free = day.slots.filter((s) => !s.pick);
   assert.deepEqual(free.map((s) => [s.start, s.end]), [[at('10:00'), at('18:00')]]);
   assert.deepEqual(free[0].backups, []);
@@ -250,8 +250,9 @@ test('buildPlan uses Elasticsearch when a client is available, and falls back to
   const day = snapshotSession.start.slice(0, 10);
   const live = await buildPlan({ conferenceId: 'kubecon-na-2026', profile, options: { days: [day] } }, { client: ok });
   assert.equal(live.searchBackend, 'elasticsearch');
-  const pick = live.days[0].slots.find((s) => s.pick).pick;
-  assert.equal(pick.session.id, snapshotSession.id);
+  const slot = live.days[0].slots.find((s) => s.pick && s.pick.session.id === snapshotSession.id);
+  assert.ok(slot, 'the Elasticsearch hit is picked');
+  const { pick } = slot;
   assert.ok(pick.reasons.includes('Matches Argo CD'));
 
   const broken = {
@@ -264,4 +265,31 @@ test('buildPlan uses Elasticsearch when a client is available, and falls back to
   const fallback = await buildPlan({ conferenceId: 'kubecon-na-2026', profile, options: { days: ['2026-11-10'] } }, { client: broken });
   assert.equal(fallback.searchBackend, 'snapshot');
   assert.ok(fallback.days[0].slots.some((s) => s.pick));
+});
+
+test('planDays: keynotes fill otherwise free time with reason "Keynote", but never displace a real match', () => {
+  const sessions = [
+    session('k1', '09:00', '09:30', { track: 'Keynote Sessions' }),
+    session('k2', '09:30', '09:40', { track: 'Keynote Sessions' }),
+    session('k3', '09:40', '09:50', { tags: ['Keynote Sessions'] }),
+    session('m', '09:35', '10:30'),
+    session('x', '11:00', '12:00'),
+  ];
+  // k1 isn't a search result at all; k2 scored 0; m is a real match overlapping k2 and k3.
+  const candidates = [rec(sessions[1], 0), rec(sessions[3], 0.21), rec(sessions[4], 0.05)];
+  const [day] = run(sessions, candidates);
+  assert.deepEqual(picks(day), ['t:k1', 't:m']);
+  const k1 = day.slots.find((s) => s.pick && s.pick.session.id === 't:k1').pick;
+  assert.equal(k1.score, plan.KEYNOTE_SCORE);
+  assert.ok(plan.KEYNOTE_SCORE > plan.MIN_SCORE && plan.KEYNOTE_SCORE < plan.MIN_SCORE + 0.05);
+  assert.deepEqual(k1.reasons, ['Keynote']);
+  // Skipped keynotes and sponsored keynotes (when excluded) stay out.
+  assert.deepEqual(picks(run(sessions, candidates, { skipped: ['t:k1'] })[0]), ['t:m']);
+  const sponsored = [session('ks', '09:00', '09:30', { track: 'Keynote Sessions', sponsored: true })];
+  assert.deepEqual(picks(run(sponsored, [], { includeSponsored: false })[0]), []);
+  assert.deepEqual(picks(run(sponsored, [])[0]), ['t:ks']);
+  // A keynote that is itself a real match keeps its own score and reasons.
+  const [own] = run(sessions.slice(0, 1), [rec(sessions[0], 0.7, ['Matches Argo CD'])]);
+  assert.equal(own.slots[0].pick.score, 0.7);
+  assert.deepEqual(own.slots[0].pick.reasons, ['Matches Argo CD']);
 });

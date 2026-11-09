@@ -5,6 +5,11 @@
 const MIN_SCORE = 0.2; // below this a session isn't worth suggesting: the time stays free
 // A pick must score at least this share of the day's best match.
 const RELATIVE_FLOOR = 0.5;
+// Keynotes often have no description, so they rarely match a profile. They get
+// a floor just above MIN_SCORE, and only where no real match overlaps them, so
+// the keynote block isn't shown as free time but never displaces a match.
+const KEYNOTE_TRACK = 'Keynote Sessions';
+const KEYNOTE_SCORE = Math.round((MIN_SCORE + 0.01) * 1000) / 1000;
 const MIN_GAP_MINUTES = 30; // free time this long gets booth suggestions
 const DAY_START = '09:00:00';
 const DAY_END = '18:00:00';
@@ -250,6 +255,25 @@ function planDay({ date, recs, pinnedRecs, options, utcOffset, sponsors, boothsO
   return { date, slots, booths };
 }
 
+function isKeynote(session) {
+  return session.track === KEYNOTE_TRACK || (Array.isArray(session.tags) && session.tags.includes(KEYNOTE_TRACK));
+}
+
+// Keynotes that scored below MIN_SCORE (or weren't returned by search at all)
+// and overlap no real match: lifted to KEYNOTE_SCORE with the reason "Keynote".
+function keynoteRecs(snapshot, matched, byId, isEligible) {
+  const real = matched.filter((r) => r.score >= MIN_SCORE);
+  const realIds = new Set(real.map((r) => r.session.id));
+  return (snapshot.sessions || [])
+    .filter((s) => isKeynote(s) && !realIds.has(s.id) && isEligible(s))
+    .filter((s) => !real.some((r) => conflicts(r.session, s)))
+    .map((session) => {
+      const found = byId.get(session.id);
+      const reasons = found ? found.reasons.filter((r) => r !== 'Keynote') : [];
+      return { session, score: KEYNOTE_SCORE, reasons: ['Keynote', ...reasons] };
+    });
+}
+
 // candidates: [{ session, score, reasons }] from search. sponsors: ranked
 // [{ sponsor, score, reasons }]. options: normalized (normalizeOptions).
 function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () => 0 }) {
@@ -259,17 +283,19 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
   const levels = options.levels;
   const byId = new Map(candidates.map((c) => [c.session.id, c]));
 
-  const eligible = candidates
-    .filter(({ session }) => {
-      if (session.kind !== 'session' || !session.start || !session.end) return false;
-      if (skipped.has(session.id) || pinned.has(session.id)) return false;
-      if (!options.includeSponsored && session.sponsored) return false;
-      if (levels.length && !(session.level == null || session.level === 'Any Level' || levels.includes(session.level))) {
-        return false;
-      }
-      return true;
-    })
-    .map((rec) => adjustForOptions(rec, options));
+  const isEligible = (session) => {
+    if (session.kind !== 'session' || !session.start || !session.end) return false;
+    if (skipped.has(session.id) || pinned.has(session.id)) return false;
+    if (!options.includeSponsored && session.sponsored) return false;
+    if (levels.length && !(session.level == null || session.level === 'Any Level' || levels.includes(session.level))) {
+      return false;
+    }
+    return true;
+  };
+  const matched = candidates.filter(({ session }) => isEligible(session)).map((rec) => adjustForOptions(rec, options));
+  const keynotes = keynoteRecs(snapshot, matched, byId, isEligible);
+  const keynoteIds = new Set(keynotes.map((r) => r.session.id));
+  const eligible = [...matched.filter((r) => !keynoteIds.has(r.session.id)), ...keynotes];
 
   const pinnedRecs = (snapshot.sessions || [])
     .filter((s) => pinned.has(s.id) && s.start && s.end)
@@ -298,6 +324,8 @@ function planDays({ snapshot, candidates, sponsors = [], options, tierRank = () 
 
 module.exports = {
   MIN_SCORE,
+  KEYNOTE_SCORE,
+  isKeynote,
   normalizeOptions,
   conferenceDays,
   isBeginnerFriendly,
