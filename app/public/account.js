@@ -62,6 +62,19 @@ export function canOptInProfile(profile, user) {
   return isOwnGithubProfile(profile, user);
 }
 
+// The GitHub username field when someone signs in: fill in their login when
+// the field is empty, keep whatever they typed (they may plan for someone else).
+export function prefillGithub(current, login) {
+  const typed = typeof current === 'string' ? current.trim() : '';
+  if (typed) return typed;
+  return typeof login === 'string' ? login : '';
+}
+
+export function isSameLogin(value, login) {
+  return typeof value === 'string' && typeof login === 'string'
+    && value.trim().replace(/^@/, '').toLowerCase() === login.toLowerCase();
+}
+
 // ---------- API ----------
 
 async function api(path, { method = 'GET', body } = {}) {
@@ -141,6 +154,57 @@ function renderHeader() {
   nav.hidden = false;
 }
 
+// The top of the form: a prominent sign-in when signed out; when signed in,
+// the username field is pre-filled and says whose account this is.
+function renderFormStart() {
+  const start = $('#account-start');
+  const signed = $('#github-signed-in');
+  const input = $('#github');
+  if (!start || !signed || !input) return;
+  const describedBy = () => (input.getAttribute('aria-describedby') || '').split(' ').filter((x) => x && x !== 'github-signed-in');
+  if (!account.enabled) {
+    start.hidden = true;
+    signed.hidden = true;
+    return;
+  }
+  if (!account.user) {
+    start.replaceChildren(
+      signInLink('Sign in with GitHub', 'btn account-start__btn'),
+      h('p', { class: 'hint account-start__hint' }, 'Optional. Fills in your username and saves your plan to come back to. We only ask GitHub for your public profile.'),
+    );
+    start.hidden = false;
+    signed.hidden = true;
+    input.setAttribute('aria-describedby', describedBy().join(' '));
+    return;
+  }
+  start.hidden = true;
+  const login = account.user.login;
+  input.value = prefillGithub(input.value, login);
+  // "Use @login" shows whenever the field holds another username; it is kept
+  // in sync as the user types and after a saved plan is restored.
+  const use = h('button', { type: 'button', class: 'btn btn--small btn--quiet' }, `Use @${login}`);
+  use.addEventListener('click', () => {
+    input.value = login;
+    syncSignedInHint();
+    input.focus();
+  });
+  signed.replaceChildren('Signed in as ', h('strong', {}, `@${login}`), '. Change the username to plan for someone else. ', use);
+  signed.hidden = false;
+  input.setAttribute('aria-describedby', [...describedBy(), 'github-signed-in'].join(' '));
+  if (!input.dataset.signedInSync) {
+    input.dataset.signedInSync = '1';
+    input.addEventListener('input', syncSignedInHint);
+  }
+  syncSignedInHint();
+}
+
+function syncSignedInHint() {
+  const use = $('#github-signed-in button');
+  const input = $('#github');
+  if (!use || !input || !account.user) return;
+  use.hidden = isSameLogin(input.value, account.user.login);
+}
+
 function setSaveStatus(text) {
   const el = $('#save-status');
   if (el) el.textContent = text;
@@ -213,6 +277,7 @@ async function saveNow() {
 // app.js calls this after every generate, swap, pin, skip or reset.
 export function notifyPlanChanged() {
   renderSaveBox();
+  syncSignedInHint(); // a restored plan may have put another username in the field
   if (!account.user) return;
   window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(saveNow, SAVE_DELAY_MS);
@@ -265,6 +330,8 @@ export async function initAccount(opts) {
     account.enabled = false;
   }
   renderHeader();
+  renderFormStart();
+  $('#github')?.addEventListener('input', () => { if (account.user) renderFormStart(); });
   if (!account.user) {
     takePending(); // signed out: drop anything left over
     return;
@@ -274,6 +341,7 @@ export async function initAccount(opts) {
   const pending = takePending();
   if (pending && applySnapshot(state, pending)) {
     hooks.restore();
+    renderFormStart();
     await loadSocial();
     notifyPlanChanged();
     return;
@@ -286,7 +354,9 @@ export async function initAccount(opts) {
     if (state.plan || !applySnapshot(state, saved)) return; // never overwrite a plan the user already made
     await loadSocial();
     hooks.restore();
+    renderFormStart();
     renderSaveBox();
+    syncSignedInHint();
     if (savedAt) {
       const when = new Date(savedAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       setSaveStatus(`Restored your saved plan (saved ${when}).`);

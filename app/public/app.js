@@ -84,7 +84,7 @@ function setLoading(on, message) {
   el.submit.setAttribute('aria-busy', on ? 'true' : 'false');
   el.submit.textContent = on ? 'Mapping your route…' : 'Map my route';
   el.plan.setAttribute('aria-busy', on ? 'true' : 'false');
-  for (const b of el.plan.querySelectorAll('[data-action="pin"], [data-action="skip"]')) b.disabled = on;
+  for (const b of el.plan.querySelectorAll('[data-action="pin"], [data-action="skip"], [data-action="add"]')) b.disabled = on;
   el.resetChoices.disabled = on;
   // Show the skeleton only when there is no plan on screen yet.
   el.skeleton.hidden = !on || !el.plan.hidden;
@@ -212,6 +212,8 @@ function showPlan({ focusKey } = {}) {
   state.activeDay = renderPlan(el.planDays, state.plan, state.activeDay);
   el.resetChoices.hidden = !(state.pinned.size || state.skipped.size || state.swaps.size);
   changeWatch.planShown();
+  // A function picks the key from the new plan (the slot to focus may have moved).
+  if (typeof focusKey === 'function') focusKey = focusKey(state.plan);
   if (focusKey) {
     const target = el.planDays.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);
     if (target) target.focus();
@@ -237,6 +239,7 @@ async function loadPlan(body, { message, done, focusKey, fresh = false }) {
     setLoading(false);
     showPlan({ focusKey });
     const n = countPicks(state.plan);
+    if (typeof done === 'function') done = done(state.plan);
     announce([done || `Route ready: ${n} session${n === 1 ? '' : 's'} over ${state.plan.days.length} day${state.plan.days.length === 1 ? '' : 's'}.`, ...notes].join(' '));
     if (fresh) $('#profile-heading')?.scrollIntoView({ block: 'start' });
     loadPeople();
@@ -328,6 +331,34 @@ function onSkip(date, index) {
   });
 }
 
+// "Add to plan" on a free slot's option: pin that session and re-plan, then
+// focus its Pin button in the new route.
+function onAdd(date, sessionId) {
+  if (!sessionId || state.loading) return;
+  const day = state.plan?.days.find((d) => d.date === date);
+  const rec = day?.slots.flatMap((s) => (s.pick ? [] : s.backups || [])).find((b) => b?.session?.id === sessionId);
+  if (!rec) return;
+  const { title } = rec.session;
+  // Pinning it can push out a pick it overlaps: say which, so nothing vanishes silently.
+  const before = day.slots.filter((s) => s.pick?.session).map((s) => s.pick.session);
+  state.pinned.add(sessionId);
+  state.skipped.delete(sessionId);
+  loadPlan(state.request, {
+    message: `Adding ${title} to your route…`,
+    done: (plan) => {
+      const after = new Set((plan?.days.find((d) => d.date === date)?.slots || []).map((s) => s.pick?.session?.id).filter(Boolean));
+      const dropped = before.filter((s) => !after.has(s.id)).map((s) => s.title);
+      const note = dropped.length ? ` It overlaps, so this left your route: ${dropped.join('; ')}.` : '';
+      return `Added ${title} to your route and pinned it.${note}`;
+    },
+    focusKey: (plan) => {
+      const slots = plan?.days.find((d) => d.date === date)?.slots || [];
+      const i = slots.findIndex((s) => s.pick?.session?.id === sessionId);
+      return i >= 0 ? `pin-${date}-${i}` : null;
+    },
+  });
+}
+
 function onTab(date, { focus = true } = {}) {
   state.activeDay = date;
   for (const tab of el.planDays.querySelectorAll('[role="tab"]')) {
@@ -409,8 +440,9 @@ async function init() {
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn || btn.tagName !== 'BUTTON') return;
-    const { action, day, slot, backup } = btn.dataset;
+    const { action, day, slot, backup, session } = btn.dataset;
     if (action === 'swap') onSwap(day, slot, backup);
+    else if (action === 'add') onAdd(day, session);
     else if (action === 'pin') onPin(day, slot);
     else if (action === 'skip') onSkip(day, slot);
     else if (action === 'tab') onTab(day);

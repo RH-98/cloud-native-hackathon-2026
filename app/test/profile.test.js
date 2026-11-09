@@ -8,6 +8,7 @@ const signals = require('../profile/signals');
 
 const FIX = path.join(__dirname, 'fixtures', 'github');
 const read = (f) => fs.readFileSync(path.join(FIX, f), 'utf8');
+const NOW = Date.parse('2026-11-09T20:00:00Z');
 const BRANCH = { 'deploy-stack': 'main', 'web-ui': 'main', 'ml-notes': 'trunk' };
 
 // A fake fetch serving fixture files. `rateLimitApiAfter`: API calls after
@@ -31,8 +32,16 @@ function fakeGithub({ rateLimitApiAfter = Infinity, user = 'octo-dev' } = {}) {
       const p = u.pathname.toLowerCase();
       if (p === `/users/${user}`) return json(read('user.json'));
       if (p === `/users/${user}/repos`) return json(read('repos.json'));
+      if (p === `/users/${user}/starred`) return json(read('starred.json'));
+      if (p === `/users/${user}/events/public`) return json(read('events.json'));
       const tree = /^\/repos\/octo-dev\/([^/]+)\/git\/trees\/([^/]+)$/.exec(u.pathname);
       if (tree && BRANCH[tree[1]] === tree[2]) return json(read(`tree-${tree[1]}.json`));
+      const langs = /^\/repos\/octo-dev\/([^/]+)\/languages$/.exec(u.pathname);
+      if (langs && fs.existsSync(path.join(FIX, `languages-${langs[1]}.json`))) return json(read(`languages-${langs[1]}.json`));
+      const other = /^\/repos\/([^/]+)\/([^/]+)$/.exec(u.pathname);
+      if (other && fs.existsSync(path.join(FIX, `repo-${other[1]}__${other[2]}.json`))) {
+        return json(read(`repo-${other[1]}__${other[2]}.json`));
+      }
       return new Response('{"message":"Not Found"}', { status: 404 });
     }
     if (u.host === 'raw.githubusercontent.com') {
@@ -179,9 +188,10 @@ test('interests: over 500 characters or empty is invalid_input', async () => {
 
 test('github: builds the contract shape from public, non-fork, non-archived repos', async () => {
   const fake = fakeGithub();
-  const p = await buildProfile({ github: 'https://github.com/Octo-Dev' }, deps(fake, { token: 'test-token' }));
+  const p = await buildProfile({ github: 'https://github.com/Octo-Dev' }, deps(fake, { token: 'test-token', now: () => NOW, maxTools: 40 }));
   assert.deepEqual(Object.keys(p), [
-    'source', 'username', 'displayName', 'avatarUrl', 'repoCount', 'languages', 'tools', 'topics', 'keywords', 'generatedAt',
+    'source', 'username', 'displayName', 'avatarUrl', 'repoCount', 'languages', 'tools', 'topics', 'keywords', 'scan',
+    'generatedAt',
   ]);
   assert.equal(p.source, 'github');
   assert.equal(p.username, 'octo-dev');
@@ -190,12 +200,15 @@ test('github: builds the contract shape from public, non-fork, non-archived repo
   assert.equal(p.languages[0].name, 'Go');
   assert.ok(Math.abs(p.languages.reduce((a, l) => a + l.weight, 0) - 1) < 0.02);
   assert.ok(!p.languages.some((l) => l.name === 'C' || l.name === 'Ruby'), 'forks and archived repos skipped');
-  assert.deepEqual(p.topics.slice().sort(), ['dashboard', 'gitops', 'kubernetes', 'opentelemetry']);
+  assert.ok(!p.languages.some((l) => l.name === 'Makefile' || l.name === 'Smarty'), 'not languages, or under 3%');
+  // The user's own topics first, then topics of repos they contributed to.
+  assert.deepEqual(p.topics.slice(0, 4).sort(), ['dashboard', 'gitops', 'kubernetes', 'opentelemetry']);
+  assert.deepEqual(p.topics.slice(4).sort(), ['linkerd', 'service-mesh']);
 
   for (const name of ['argo-rollouts', 'argo-cd', 'kubernetes', 'opentelemetry', 'prometheus', 'helm', 'kustomize', 'postgres']) {
-    assert.ok(tool(p, name), `found ${name}`);
+    assert.ok(tool(p, name), `found ${name}: ${p.tools.map((t) => `${t.name} ${t.weight} ${t.strength} ${t.kinds}`).join(" | ")}`);
   }
-  assert.ok(p.tools.length <= 15);
+  assert.ok(p.tools.length > 15, "maxTools: 40 shows the long tail");
   for (const t of p.tools) {
     assert.ok(t.weight > 0 && t.weight <= 1, `${t.name} weight ${t.weight}`);
     assert.equal(typeof t.label, 'string');
@@ -217,14 +230,50 @@ test('github: builds the contract shape from public, non-fork, non-archived repo
     if (c.url.startsWith('https://api.github.com/')) assert.equal(c.headers.Authorization, 'Bearer test-token');
     else assert.equal(c.headers.Authorization, undefined);
   }
-  assert.ok(fake.calls.length <= 40, `${fake.calls.length} calls`);
+  const apiCalls = fake.calls.filter((c) => c.url.startsWith('https://api.github.com/'));
+  assert.ok(apiCalls.length <= 25, `${apiCalls.length} API calls`);
+  assert.ok(fake.calls.length <= 60, `${fake.calls.length} calls`);
   assert.ok(!fake.calls.some((c) => c.url.includes('forked-thing') || c.url.includes('old-archive')));
+
+  // Strength and kinds on every tool; evidence and sources line up.
+  for (const t of p.tools) {
+    assert.ok(['strong', 'medium', 'light'].includes(t.strength), `${t.name} strength ${t.strength}`);
+    assert.ok(Array.isArray(t.kinds) && t.kinds.length > 0, `${t.name} kinds`);
+    assert.deepEqual(t.sources.map((s) => s.repo), t.evidence);
+  }
+  assert.equal(tool(p, 'argo-rollouts').strength, 'strong');
+  assert.ok(tool(p, 'argo-rollouts').kinds.includes('manifest'));
+  assert.ok(tool(p, 'postgres').kinds.includes('dependency'));
+
+  // Contributions: other people's repos only, last 90 days, opened PRs/issues and pushes.
+  const linkerd = tool(p, 'linkerd');
+  assert.ok(linkerd && linkerd.kinds.includes('contribution') && linkerd.strength === 'medium');
+  assert.deepEqual(linkerd.evidence, ['other-org/mesh-lab']);
+  assert.ok(!out.includes('old-org/ancient') && !out.includes('closed-only') && !out.includes('other-org/watched'));
+  // Starred: weak, light, and below every tool the user actually runs.
+  const cilium = tool(p, 'cilium');
+  assert.ok(cilium && cilium.strength === 'light' && cilium.weight <= 0.35, JSON.stringify(cilium));
+  assert.deepEqual(cilium.kinds, ['starred']);
+  for (const t of p.tools.filter((x) => x.strength === 'strong')) assert.ok(t.weight > cilium.weight, t.name);
+
+  assert.deepEqual(p.scan, {
+    publicRepos: 5, scanned: 3, forks: 1, empty: 0, archived: 1, starred: 3, contributions: 2, partial: false,
+  });
 });
 
 test('github: no token means no Authorization header', async () => {
   const fake = fakeGithub();
-  await buildProfile({ github: 'octo-dev' }, deps(fake, { token: undefined }));
+  const p = await buildProfile({ github: 'octo-dev' }, deps(fake, { token: undefined }));
+  assert.ok(p.tools.length <= 15);
   assert.ok(fake.calls.every((c) => c.headers.Authorization === undefined));
+});
+
+test('github: skips optional API jobs beyond the anonymous budget without marking partial', async () => {
+  const fake = fakeGithub();
+  const p = await buildProfile({ github: 'octo-dev' }, deps(fake, { maxApiCalls: 8 }));
+  const apiCalls = fake.calls.filter((c) => c.url.startsWith('https://api.github.com/'));
+  assert.equal(apiCalls.length, 8);
+  assert.equal(p.scan.partial, false);
 });
 
 test('github: unknown user is not_found', async () => {
@@ -257,6 +306,9 @@ test('github: rate limit mid-scan returns a partial profile from what was fetche
   // After the first refusal it stops calling the API.
   const trees = fake.calls.filter((c) => c.url.includes('/git/trees/'));
   assert.ok(trees.length <= 4, `${trees.length} tree calls`);
+  assert.equal(p.scan.partial, true);
+  assert.equal(p.scan.scanned, 3);
+  assert.equal(p.scan.starred, 0);
 });
 
 test('github: upstream errors are upstream without leaking the body', async () => {

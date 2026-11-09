@@ -4,6 +4,8 @@
 import { cityOf, formatDateSpan, formatDay, formatTimeRange, minutesBetween, safeUrl, timeRangeParts, zoneLongName } from './format.js';
 
 const MIN_GAP_MINUTES = 15;
+const SHORT_GAP_MINUTES = 15; // below this, free time is a walk to the next room
+const COMPACT_GAP_MINUTES = 10; // below this, no "Things to do" list
 
 // h('a', { href, class: 'x' }, 'text', child) -> element
 export function h(tag, attrs = {}, ...children) {
@@ -67,14 +69,50 @@ export function renderConferenceCards(container, conferences, selectedId) {
 
 let tipCount = 0;
 
+const KIND_TEXT = {
+  dependency: 'dependency', manifest: 'manifest or config file', workflow: 'CI workflow', image: 'container image',
+  topic: 'repo topic', implied: 'implied by a related tool', readme: 'README mention', fork: 'fork',
+  starred: 'starred', contribution: 'recent contribution',
+};
+const STRENGTH_DOTS = { strong: '●●●', medium: '●●○', light: '●○○' };
+
+// "dependency in RH-98/x · README mention in RH-98/y"
+function toolWhy(tool) {
+  const sources = Array.isArray(tool.sources) && tool.sources.length
+    ? tool.sources
+    : (tool.evidence || []).filter(Boolean).map((repo) => ({ repo, kinds: [] }));
+  return sources.slice(0, 4).map((s) => {
+    const kinds = (s.kinds || []).map((k) => KIND_TEXT[k] || k).join(', ');
+    return kinds ? `${kinds} in ${s.repo}` : `seen in ${s.repo}`;
+  }).join(' · ') + (sources.length > 4 ? ` · and ${sources.length - 4} more` : '');
+}
+
 function toolChip(tool) {
-  const evidence = (tool.evidence || []).filter(Boolean);
-  if (!evidence.length) return h('li', { class: 'chip chip--tool' }, tool.name);
+  const name = tool.label || tool.name;
+  const strength = STRENGTH_DOTS[tool.strength]
+    ? [h('span', { class: 'chip__strength', 'aria-hidden': 'true' }, STRENGTH_DOTS[tool.strength]),
+      h('span', { class: 'sr-only' }, ` (${tool.strength} signal)`)]
+    : [];
+  const why = toolWhy(tool);
+  if (!why) return h('li', { class: 'chip chip--tool' }, name, ...strength);
   const id = `tip-${++tipCount}`;
-  const shown = evidence.slice(0, 4).join(', ') + (evidence.length > 4 ? ` and ${evidence.length - 4} more` : '');
   return h('li', { class: 'chip chip--tool chip--has-tip' },
-    h('span', { class: 'chip__label', tabindex: '0', 'aria-describedby': id }, tool.name),
-    h('span', { class: 'tip', role: 'tooltip', id }, `Seen in ${shown}`));
+    h('span', { class: 'chip__label', tabindex: '0', 'aria-describedby': id }, name, ...strength),
+    h('span', { class: 'tip', role: 'tooltip', id }, why));
+}
+
+// "Scanned 2 of 6 public repos (3 forks, 1 empty) · 30 starred · 2 recent contributions"
+function scanLine(profile) {
+  const s = profile.scan;
+  const n = profile.repoCount ?? 0;
+  if (!s) return `scanned ${n} public repo${n === 1 ? '' : 's'}`;
+  const plural = (k, word) => `${k} ${word}${k === 1 ? '' : 's'}`;
+  const skipped = [s.forks && plural(s.forks, 'fork'), s.empty && `${s.empty} empty`, s.archived && `${s.archived} archived`]
+    .filter(Boolean);
+  const parts = [`scanned ${s.scanned} of ${plural(s.publicRepos, 'public repo')}${skipped.length ? ` (${skipped.join(', ')})` : ''}`];
+  if (s.starred) parts.push(`${s.starred} starred`);
+  if (s.contributions) parts.push(plural(s.contributions, 'recent contribution'));
+  return parts.join(' · ');
 }
 
 function chips(items, cls = 'chip') {
@@ -97,19 +135,27 @@ export function renderProfile(section, profile, notes = []) {
     isGithub && profile.username
       ? h('p', { class: 'profile__sub' },
         externalLink(`https://github.com/${encodeURIComponent(profile.username)}`, `@${profile.username}`),
-        ` · scanned ${profile.repoCount ?? 0} public repo${profile.repoCount === 1 ? '' : 's'}${blended ? ', plus the interests you typed' : ''}`)
+        ` · ${scanLine(profile)}${blended ? ', plus the interests you typed' : ''}`)
       : h('p', { class: 'profile__sub' }, 'From the interests you typed'));
 
   const blocks = [];
   const tools = profile.tools || [];
   if (isGithub) {
     if (tools.length) {
+      // Strongest first: real usage (dependencies, manifests, workflows,
+      // images) and typed tools, then topics, mentions and starred repos.
+      const sorted = [...tools].sort((a, b) => (b.weight || 0) - (a.weight || 0));
+      const strong = sorted.filter((t) => !t.strength || t.strength === 'strong');
+      const seen = sorted.filter((t) => t.strength && t.strength !== 'strong');
       blocks.push(h('div', { class: 'profile__block' },
         h('h3', {}, 'Tools we spotted'),
         h('p', { class: 'hint' }, blended
-          ? 'Focus or hover a tool to see which repos it came from. Tools without repos are ones you typed.'
-          : 'Focus or hover a tool to see which repos it came from.'),
-        h('ul', { class: 'chips' }, tools.map(toolChip))));
+          ? 'Focus or hover a tool to see why: which kind of evidence, in which repos. Tools without repos are ones you typed.'
+          : 'Focus or hover a tool to see why: which kind of evidence, in which repos.'),
+        strong.length ? h('h4', { class: 'profile__group' }, 'Strong signals') : null,
+        strong.length ? h('ul', { class: 'chips' }, strong.map(toolChip)) : null,
+        seen.length ? h('h4', { class: 'profile__group' }, 'Also seen') : null,
+        seen.length ? h('ul', { class: 'chips' }, seen.map(toolChip)) : null));
     }
     const langs = profile.languages || [];
     if (langs.length) {
@@ -195,17 +241,7 @@ function backupList(date, index, slot, timeZone) {
 
 function slotItem(date, index, slot, timeZone, booths = []) {
   const rec = slot.pick;
-  if (!rec || !rec.session) {
-    // Free time: booths that fit here, and any backups the planner offered.
-    return h('li', { class: 'stop stop--gap' },
-      h('div', { class: 'stop__time' }, timeRange(slot.start, slot.end, timeZone, 'when', true)),
-      h('div', { class: 'gap' },
-        h('h4', { class: 'gap__title' }, freeFor(slot.start, slot.end), booths.length ? ' \u00b7 booth stops on the way' : ''),
-        booths.length
-          ? h('ul', { class: 'booths' }, booths.map(boothItem))
-          : h('p', { class: 'hint' }, 'Nothing here matched you. Rest, refill your water, or wander the hallway track.'),
-        backupList(date, index, slot, timeZone)));
-  }
+  if (!rec || !rec.session) return freeSlotItem(date, index, slot, timeZone, booths);
   const s = rec.session;
   const titleId = `pick-${date}-${index}`;
   const flags = [
@@ -232,18 +268,92 @@ function boothItem(booth) {
     reasonChips(booth.reasons, `Why visit ${sp.name}`));
 }
 
-function freeFor(start, end) {
+function openFor(start, end) {
   const mins = minutesBetween(start, end);
-  if (mins < 60) return `Free for ${mins} min`;
-  return `Free for ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
+  if (mins < 60) return `Open time \u00b7 ${mins} min`;
+  return `Open time \u00b7 ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ''}`;
 }
 
+// Gaps the planner did not plan (outside its 9:00-18:00 window).
 function gapItem(gap, timeZone) {
+  const short = minutesBetween(gap.start, gap.end) < SHORT_GAP_MINUTES;
   return h('li', { class: 'stop stop--gap' },
     h('div', { class: 'stop__time' }, timeRange(gap.start, gap.end, timeZone, 'when', true)),
     h('div', { class: 'gap' },
-      h('h4', { class: 'gap__title' }, freeFor(gap.start, gap.end), gap.booths.length ? ' \u00b7 booth stops on the way' : ''),
-      gap.booths.length ? h('ul', { class: 'booths' }, gap.booths.map(boothItem)) : null));
+      h('h4', { class: 'gap__title' }, openFor(gap.start, gap.end)),
+      gap.booths.length
+        ? optionsList({ sessions: [], logistics: [], booths: gap.booths }, timeZone)
+        : h('p', { class: 'gap__suggestion' }, short ? 'Short break: walk to your next room.' : 'Take a breather before your next session.')));
+}
+
+// ---------- Free time: things to do ----------
+
+const LOGISTICS_KINDS = {
+  meal: { icon: '\u{1F37D}\uFE0F', label: 'Food' },
+  break: { icon: '\u2615', label: 'Break' },
+  social: { icon: '\u{1F942}', label: 'Social' },
+  expo: { icon: '\u{1F3EA}', label: 'Expo' },
+  other: { icon: '\u{1F4CD}', label: 'On site' },
+};
+
+function logisticsItem(item, timeZone) {
+  const kind = LOGISTICS_KINDS[item.type] || LOGISTICS_KINDS.other;
+  return h('li', { class: 'logistic' },
+    h('span', { class: 'logistic__icon', 'aria-hidden': 'true' }, kind.icon),
+    h('span', { class: 'logistic__body' },
+      h('span', { class: 'logistic__kind' }, `${kind.label}: `),
+      h('strong', {}, item.title),
+      h('span', { class: 'logistic__meta' }, ' ', timeRange(item.start, item.end, timeZone), item.room ? ` \u00b7 ${item.room}` : '')));
+}
+
+function optionSession(date, b, timeZone) {
+  const s = b.session;
+  return h('li', { class: 'backup' },
+    h('p', { class: 'backup__title' }, externalLink(s.url, s.title)),
+    h('p', { class: 'backup__meta' },
+      timeRange(s.start, s.end, timeZone),
+      s.room ? ` \u00b7 ${s.room}` : '',
+      s.level ? ` \u00b7 ${s.level}` : ''),
+    reasonChips(b.reasons, `About ${s.title}`),
+    h('button', { type: 'button', class: 'btn btn--small', dataset: { action: 'add', day: date, session: s.id } },
+      'Add to plan', srOnly(`: ${s.title}`)));
+}
+
+function optionGroup(title, list) {
+  return h('div', { class: 'options__group' }, h('h5', { class: 'options__heading' }, title), list);
+}
+
+// The "Things to do (N)" disclosure for free time, styled like "Backups (N)".
+function optionsList({ date, sessions, logistics, booths }, timeZone) {
+  const n = sessions.length + logistics.length + booths.length;
+  if (!n) return null;
+  return h('details', { class: 'backups options' },
+    h('summary', {}, `Things to do (${n})`),
+    logistics.length ? optionGroup('Food and breaks', h('ul', { class: 'logistics' }, logistics.map((l) => logisticsItem(l, timeZone)))) : null,
+    sessions.length ? optionGroup('Sessions on anyway', h('ol', { class: 'backups__list' }, sessions.map((b) => optionSession(date, b, timeZone)))) : null,
+    booths.length ? optionGroup('Booths to visit', h('ul', { class: 'booths' }, booths.map(boothItem))) : null);
+}
+
+// A slot with no pick: a friendly title, the planner's suggestion, and the
+// options it found (sessions on anyway, meals and breaks, booths).
+function freeSlotItem(date, index, slot, timeZone, booths = []) {
+  const mins = minutesBetween(slot.start, slot.end);
+  const options = {
+    date,
+    sessions: (slot.backups || []).filter((b) => b && b.session),
+    logistics: (slot.logistics || []).filter((l) => l && l.title && l.start && l.end),
+    booths: (Array.isArray(slot.booths) ? slot.booths : booths).filter((b) => b && b.sponsor),
+  };
+  const suggestion = slot.suggestion || (mins < SHORT_GAP_MINUTES
+    ? 'Short break: walk to your next room.'
+    : 'Rest, refill your water, or wander the hallway track.');
+  return h('li', { class: 'stop stop--gap' },
+    h('div', { class: 'stop__time' }, timeRange(slot.start, slot.end, timeZone, 'when', true)),
+    h('div', { class: 'gap' },
+      h('h4', { class: 'gap__title' }, openFor(slot.start, slot.end)),
+      h('p', { class: 'gap__suggestion' }, suggestion),
+      // Very short gaps stay compact: just the suggestion.
+      mins < COMPACT_GAP_MINUTES ? null : optionsList(options, timeZone)));
 }
 
 // Interleaves slots with free gaps, and puts each booth in the free time
