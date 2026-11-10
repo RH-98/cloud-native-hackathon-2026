@@ -246,6 +246,34 @@ async function scanRepo(client, repo, guard, filesPerRepo) {
   return result;
 }
 
+// A repo many people starred is what the person is known for, however long
+// ago they last pushed to it (kelseyhightower/kubernetes-the-hard-way):
+// recency never takes its weight below this. 0 under 10 stars, 0.8 at 10k+.
+function popularityFloor(repo) {
+  const stars = Number(repo && repo.stargazers_count) || 0;
+  if (stars < 10) return 0;
+  return Math.min(0.8, 0.2 * (Math.log10(stars) - 1) + 0.2);
+}
+
+// Own repos to scan: half the budget for the most recently pushed (what they
+// work on now), the rest for the most starred (what they are known for).
+function pickRepos(candidates, max) {
+  const byPushed = [...candidates].sort((a, b) => String(b.pushed_at || '').localeCompare(String(a.pushed_at || '')));
+  const recent = byPushed.slice(0, Math.ceil(max / 2));
+  const taken = new Set(recent.map((r) => r.full_name));
+  const popular = [...candidates]
+    .filter((r) => !taken.has(r.full_name) && (Number(r.stargazers_count) || 0) >= 10)
+    .sort((a, b) => (Number(b.stargazers_count) || 0) - (Number(a.stargazers_count) || 0))
+    .slice(0, max - recent.length);
+  const picked = [...recent, ...popular];
+  // Fill any space left (few starred repos) with the next most recent.
+  for (const r of byPushed) {
+    if (picked.length >= max) break;
+    if (!picked.includes(r)) picked.push(r);
+  }
+  return picked;
+}
+
 const lowerTopics = (repo) => (repo.topics || []).map((t) => String(t).toLowerCase());
 const asWords = (topics) => topics.map((t) => t.replace(/-/g, ' ')).join('\n');
 
@@ -259,7 +287,7 @@ function aggregate({ user, repos, scans, languageBytes = [], forks = [], starred
   const docs = [];
 
   repos.forEach((repo, i) => {
-    const recency = recencyDecay(repo.pushed_at, now);
+    const recency = Math.max(recencyDecay(repo.pushed_at, now), popularityFloor(repo));
     const scan = scans[i];
     const topics = lowerTopics(repo);
     topics.forEach((t) => topicCounts.set(t, (topicCounts.get(t) || 0) + 1));
@@ -382,10 +410,10 @@ async function fromGithub(username, deps, span) {
   const login = user.login || username;
   const byPushed = (a, b) => String(b.pushed_at || '').localeCompare(String(a.pushed_at || ''));
   const mine = all.filter((r) => r && !r.private && typeof r.full_name === 'string');
-  const repos = mine
-    .filter((r) => !r.fork && !r.archived && r.size !== 0)
-    .sort(byPushed)
-    .slice(0, deps.maxRepos || MAX_REPOS);
+  const repos = pickRepos(
+    mine.filter((r) => !r.fork && !r.archived && r.size !== 0),
+    deps.maxRepos || MAX_REPOS,
+  );
   const forkSince = now - FORK_DAYS * 24 * 60 * 60 * 1000;
   const forks = mine
     .filter((r) => r.fork && Date.parse(r.pushed_at) >= forkSince)
@@ -504,4 +532,4 @@ async function buildProfile({ github, interests } = {}, deps = {}) {
 
 module.exports = { buildProfile, mergeInterests, isPastedProfile, ProfileError, TtlCache, clearCache: () => defaultCache.clear() };
 // For app/profile/private.js: the same scan and aggregation over repos it picks.
-module.exports.internal = { scanRepo, aggregate, mapLimit, guarded };
+module.exports.internal = { scanRepo, aggregate, mapLimit, guarded, pickRepos, popularityFloor };
