@@ -231,6 +231,9 @@ test('github: builds the contract shape from public, non-fork, non-archived repo
     else assert.equal(c.headers.Authorization, undefined);
   }
   const apiCalls = fake.calls.filter((c) => c.url.startsWith('https://api.github.com/'));
+  const reposCall = apiCalls.find((c) => new URL(c.url).pathname.toLowerCase() === '/users/octo-dev/repos');
+  assert.ok(reposCall, 'owner repositories requested');
+  assert.equal(new URL(reposCall.url).searchParams.get('per_page'), '100');
   assert.ok(apiCalls.length <= 25, `${apiCalls.length} API calls`);
   assert.ok(fake.calls.length <= 60, `${fake.calls.length} calls`);
   assert.ok(!fake.calls.some((c) => c.url.includes('forked-thing') || c.url.includes('old-archive')));

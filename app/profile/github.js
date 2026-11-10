@@ -108,7 +108,7 @@ function createClient({ fetch = globalThis.fetch, token, timeoutMs = 5000, maxCa
 
     fetchRepos(username) {
       return withSpan('github.fetch_repos', {}, async (span) => {
-        const res = await api(span, `/users/${encodeURIComponent(username)}/repos?sort=pushed&per_page=30&type=owner`);
+        const res = await api(span, `/users/${encodeURIComponent(username)}/repos?sort=pushed&per_page=100&type=owner`);
         const repos = await res.json();
         span.setAttribute('github.repo_count', Array.isArray(repos) ? repos.length : 0);
         return Array.isArray(repos) ? repos : [];
